@@ -4,10 +4,10 @@
 
 ## 功能
 
-- 🦊 **Camofox 采集**：自动访问 bloggers 列表，采集最近推文
+- 🦊 **Camofox 采集**：子代理自动访问 bloggers 列表，采集推文 URL 并生成 ID 文件
 - 🤖 **AI 生成日报**：按规范生成中文新闻式标题和摘要
 - 📤 **多渠道发送**：支持 Teams（Adaptive Card），可扩展其他渠道
-- ⏰ **Cron 自动化**：配合 OpenClaw 实现定时执行
+- ⏰ **Cron 自动化**：配合 OpenClaw 实现定时执行（采集 10:00，发送 11:00）
 
 ## 依赖
 
