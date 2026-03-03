@@ -367,9 +367,9 @@ Figma 官方回顾了被称为 Auto Layout 月的产品迭代周期。Auto Layou
 ## 待优化
 
 - [x] ~~脚本改造：自动调用 AI 生成高质量内容~~ → 改为 Cron 触发子代理执行
+- [x] ~~Camofox 采集自动化~~ → 子代理自动访问账号、采集 URL、生成 ids 文件
 - [ ] webhook URL 轮换机制
 - [ ] 错误重试机制
-- [ ] Camofox 采集自动化（当前需手动导出 URL）
 
 ---
 
