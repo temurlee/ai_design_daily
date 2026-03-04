@@ -28,9 +28,9 @@ const top10 = [
 
 const summaryParagraph = '过去24小时AI圈整体情绪偏积极，开源项目与产品更新密集。短期内 Agent UX、Design-to-Code 与多模态设计协同仍会持续发酵；对设计/产品形态的影响集中在工作流整合与组件化交付效率上，值得持续关注。';
 
-function buildCardItem(item, idx) {
+function buildCardItem(item) {
   return [
-    { type: 'TextBlock', text: `${idx + 1}. ${item.title}`, weight: 'Bolder', wrap: true, spacing: 'Medium' },
+    { type: 'TextBlock', text: item.title, weight: 'Bolder', wrap: true, spacing: 'Medium' },
     { type: 'TextBlock', text: item.summary, wrap: true, spacing: 'Small' },
     { type: 'TextBlock', text: `👉 [点击查看](${item.url})`, wrap: true, spacing: 'Small', isSubtle: true }
   ];
@@ -49,7 +49,7 @@ const card = {
     { type: 'TextBlock', text: 'AI设计日报Beta（TAI-IPX x 🦞）', size: 'Large', weight: 'Bolder', wrap: true },
     { type: 'TextBlock', text: '追踪过去24小时AI前沿热点事件', isSubtle: true, spacing: 'None', wrap: true },
     sectionHeader('📌', 'TOP 10'),
-    ...top10.flatMap((x, i) => buildCardItem(x, i)),
+    ...top10.flatMap((x) => buildCardItem(x)),
     sectionHeader('🧭', '小结与展望'),
     { type: 'TextBlock', text: summaryParagraph, wrap: true, spacing: 'Medium' }
   ]

@@ -75,17 +75,32 @@ function parseItems(sectionText) {
     const line = raw.trim();
     if (!line) continue;
 
+    const linkMatch = line.match(/👉\s*\[点击查看\]\((https?:\/\/[^)]+)\)/);
+    if (linkMatch) {
+      if (cur) {
+        cur.url = linkMatch[1];
+        pushCur();
+        cur = null;
+      }
+      continue;
+    }
+
     if (/^\d+\./.test(line)) {
       pushCur();
       cur = { title: line.replace(/^\d+\.\s*/, '').trim(), summary: [], url: '' };
       continue;
     }
 
-    if (!cur) continue;
+    if (!cur) {
+      cur = { title: line, summary: [], url: '' };
+      continue;
+    }
 
     const u = (line.match(/https?:\/\/x\.com\/[^\s*]+\/status\/\d+/i) || [''])[0];
     if (u) {
       cur.url = u;
+      pushCur();
+      cur = null;
       continue;
     }
 
@@ -154,9 +169,9 @@ function sectionHeader(emoji, title) {
   return { type: 'TextBlock', text: `${emoji} ${title}`, weight: 'Bolder', size: 'Medium', separator: true, spacing: 'Large', wrap: true };
 }
 
-function itemBlocks(item, idx) {
+function itemBlocks(item) {
   return [
-    { type: 'TextBlock', text: `${idx + 1}. ${item.title}`, weight: 'Bolder', wrap: true, spacing: 'Medium' },
+    { type: 'TextBlock', text: item.title, weight: 'Bolder', wrap: true, spacing: 'Medium' },
     { type: 'TextBlock', text: item.summary, wrap: true, spacing: 'Small' },
     { type: 'TextBlock', text: `👉 [点击查看](${item.url})`, wrap: true, spacing: 'Small', isSubtle: true }
   ];
@@ -173,7 +188,7 @@ function buildCard(dateLine, data) {
       { type: 'TextBlock', text: '追踪过去24小时AI前沿热点事件', isSubtle: true, spacing: 'None', wrap: true },
 
       sectionHeader('📌', 'TOP 10'),
-      ...data.top10.flatMap((x, i) => itemBlocks(x, i)),
+      ...data.top10.flatMap((x) => itemBlocks(x)),
 
       sectionHeader('🧭', '小结与展望'),
       { type: 'TextBlock', text: data.summary.paragraph, wrap: true, spacing: 'Medium' }

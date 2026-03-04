@@ -152,10 +152,10 @@ function parseTitle(item) {
   return `${detectEntity(item)}${detectAction(item)}，${detectPositioning(item)}`;
 }
 
-function formatItem(i, idx) {
+function formatItem(i) {
   const summary = buildSummary(i);
   if (!summary) return '';
-  return `${idx + 1}. ${parseTitle(i)}\n> ${summary}\n>\n> *链接：${i.url}*`;
+  return `${parseTitle(i)}\n> ${summary}\n>\n> *链接：${i.url}*`;
 }
 
 function formatVoiceItem(i, idx) {
@@ -395,7 +395,7 @@ if (candidatesOnly) {
   process.exit(0);
 }
 
-const top10Text = top10.slice(0, 10).map((x, idx) => formatItem(x, idx)).filter(Boolean).join('\n\n');
+const top10Text = top10.slice(0, 10).map((x) => formatItem(x)).filter(Boolean).join('\n\n');
 const designCount = top10.filter(x => x._isDesign).length;
 const ratio = top10.length ? Math.round((designCount / top10.length) * 100) : 0;
 const summaryParagraph = `过去24小时AI圈整体情绪偏积极，开源项目与产品更新密集。短期内 Agent UX、Design-to-Code 与多模态设计协同仍会持续发酵；对设计/产品形态的影响集中在工作流整合与组件化交付效率上，值得持续关注。（设计相关内容占比约${ratio}%）`;
