@@ -159,8 +159,8 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
   "schedule": { "kind": "cron", "expr": "30 9 * * 1-5", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行AI日报 Camofox 采集：\n\n1. 读取 ~/.openclaw/workspace/skills/ai_design_daily/references/query-presets.json，获取 bloggers 与 official 完整列表\n2. 必须完整遍历上述列表中每一个账号，不得跳过。使用 Camofox 浏览器逐个访问每个账号的 Twitter profile 页面\n3. 滚动页面采集最近 24 小时内的推文，复制每条推文的 status URL\n4. 将所有 URL 写入 ~/.openclaw/workspace/skills/ai_design_daily/cache/camofox-urls.txt\n5. 运行 node ~/.openclaw/workspace/skills/ai_design_daily/scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48\n6. 汇报采集结果：成功与失败的账号列表",
-    "timeoutSeconds": 1800
+    "message": "执行AI日报 Camofox 采集：\n\n1. 读取 ~/.openclaw/workspace/skills/ai_design_daily/references/query-presets.json，获取 bloggers 与 official 完整列表\n2. 必须完整遍历上述列表中每一个账号，不得跳过。使用 Camofox 浏览器逐个访问每个账号的 Twitter profile 页面\n3. 滚动页面采集最近 24 小时内的推文，复制每条推文的 status URL\n4. 将所有 URL 写入 ~/.openclaw/workspace/skills/ai_design_daily/cache/camofox-urls.txt\n5. 运行 node ~/.openclaw/workspace/skills/ai_design_daily/scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 24\n6. 汇报采集结果：成功与失败的账号列表",
+    "timeoutSeconds": 3600
   }
 }
 ```
@@ -226,6 +226,21 @@ ai_design_daily/
 
 - **TOP 10**：10 条当日重要 AI/设计事件与观点（每条：标题 + 100–140 字摘要 + 链接）
 - **小结与展望**：一段话总结当天 AI 整体情绪与趋势，展望可能持续发酵的话题；可侧重对设计/产品形态的短期影响
+
+## 运行约定（重要）
+
+- **正式完整跑** = 完全重头开始：
+  - 不复用旧 `cache/camofox-urls.txt`
+  - 不复用旧 `cache/camofox-latest-ids.json`
+  - 不复用旧 `cache/fxtwitter-state.json`
+  - 从采集 → 生成 ID → AI 写稿 → `--report-file` 发送全链路重跑
+- 发送阶段必须显式使用：
+
+```bash
+node scripts/send_to_teams.mjs --report-file cache/generated-report.md
+```
+
+- 禁止省略 `--report-file` 回退到旧的默认生成链路。
 
 ## License
 
