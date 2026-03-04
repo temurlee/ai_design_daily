@@ -247,11 +247,12 @@ Tabbit 发布：光年之外团队推出 AI 浏览器
 - **失败重试**：在 OpenClaw 中为两个 Cron 任务都配置**最多 1 次自动重试**：
   - 采集失败：间隔 5–10 分钟后重试 1 次，仍失败则当日记为采集失败但不要无限重试。
   - 发送失败：重试 1 次即可，避免重复给同一个 Teams 频道推多条相同日报。
+ - **全链路重跑**：每次触发“AI设计日报生成并发送”时，都必须基于当日最新一次采集结果，从“采集 → 生成 ID → fxtwitter 拉取详情 → AI 写稿 → `--report-file` 发送”全链路重新执行一遍；禁止复用前一日或更早生成的 `cache/camofox-urls.txt`、`cache/camofox-latest-ids.json`、`cache/fxtwitter-state.json` 直接出日报。
 
 **采集任务（每天 9:30，仅采集不发送）**：
 
-1. **账号时间线**：读取 `references/query-presets.json`，**完整遍历** `bloggers` 与 `official` 的每一个账号，用 Camofox 逐个访问其 X 个人页，滚动采集最近 24 小时内推文，只复制 status URL（`https://x.com/.../status/数字`），写入 `cache/camofox-urls.txt`。不得跳过任一账号；失败则记录后继续。
-2. **搜索页**：从 `query-presets.json` 的 `designKeywords`、`generalKeywords` 中取 2–3 个设计关键词、2–3 个通用 AI 关键词，拼成 2–4 个搜索 query（OR 连接，URL 编码），用 Camofox 访问 `https://x.com/search?q=...&src=typed_query&f=live`（或 `f=top`），每个 query 滚动采集一屏到两屏推文，只复制 status URL，**追加**到同一 `cache/camofox-urls.txt`。
+1. **账号时间线（来源完整性约束）**：读取 `references/query-presets.json`，**完整遍历** `bloggers` 与 `official` 的每一个账号，用 Camofox 逐个访问其 X 个人页，滚动采集最近 24 小时内推文，只复制 status URL（`https://x.com/.../status/数字`），写入 `cache/camofox-urls.txt`。**不得跳过任一账号**；若某账号访问失败，需记录失败原因和 handle 并继续剩余账号，最终在汇报中给出“成功/失败账号列表”，在未尝试完整账号列表前不得宣称采集完成。
+2. **搜索页（来源完整性约束）**：从 `query-presets.json` 的 `designKeywords`、`generalKeywords` 中取 2–3 个设计关键词、2–3 个通用 AI 关键词，拼成 2–4 个搜索 query（OR 连接，URL 编码），用 Camofox 访问 `https://x.com/search?q=...&src=typed_query&f=live`（或 `f=top`），每个 query 滚动采集一屏到两屏推文，只复制 status URL，**追加**到同一 `cache/camofox-urls.txt`。需对预设的每一条搜索 query 都执行采集；若某条 query 采集失败，同样记录失败原因并继续执行其他 query，最终在汇报中给出“成功/失败 query 列表”，在未尝试完整搜索来源前不得宣称采集完成。
 3. **去重与产出**：运行 `node scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48`，生成 id 列表。汇报采集结果（成功/失败账号数、搜索 query 数、最终 id 数量）。
 4. 本任务**不执行**生成日报或发送。
 

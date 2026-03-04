@@ -235,11 +235,14 @@ ai_design_daily/
 
 ## 运行约定（重要）
 
-- **正式完整跑** = 完全重头开始：
+- **正式完整跑** = 完全重头开始（适用于每次“AI设计日报生成并发送”任务）：
   - 不复用旧 `cache/camofox-urls.txt`
   - 不复用旧 `cache/camofox-latest-ids.json`
   - 不复用旧 `cache/fxtwitter-state.json`
-  - 从采集 → 生成 ID → AI 写稿 → `--report-file` 发送全链路重跑
+  - 必须基于当日最新一次采集结果，从「采集 → 生成 ID → fxtwitter 拉取详情 → AI 写稿 → `--report-file` 发送」全链路重跑，而不是只重跑后半段。
+- **采集完整性约束**：一次采集任务只有在**同时满足**下列条件时才算完成：
+  - 已尝试访问 `references/query-presets.json` 中 `bloggers` 与 `official` 的每一个账号（逐个访问 profile，不得跳过），并在日志/汇报中给出“成功/失败账号列表”；
+  - 已对预设的每一条搜索 query 执行采集（包括设计向与通用向），并在日志/汇报中给出“成功/失败 query 列表”。
 - 发送阶段必须显式使用：
 
 ```bash
