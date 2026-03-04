@@ -153,7 +153,10 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
 
 ### 4. 配置 Cron 任务
 
-在 OpenClaw 中创建两个 Cron 任务：
+在 OpenClaw 中创建两个 Cron 任务，**推荐策略**：
+
+- **串行**：先等“采集任务”明确 finished，再触发“发送任务”，避免发送阶段读取到半成品 `camofox-latest-ids.json`。
+- **重试**：采集失败时自动重试 1 次（间隔 5–10 分钟），发送失败时只重试 1 次，避免重复发消息。
 
 **采集任务（每天 9:30 工作日）**：
 ```json
@@ -179,7 +182,7 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
   "payload": {
     "kind": "agentTurn",
     "message": "执行AI设计日报生成并发送（完整步骤见本 skill 的 SKILL.md「子代理执行指令」）：\n\n1. 在 ai_design_daily 技能根目录运行：node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json\n2. 阅读 SKILL.md 与 prompt.md（若有），根据 cache/candidates.json 中的 candidates 用 AI 生成日报：TOP 10 每条新闻式标题+100-140字中文摘要+链接，小结一段话；全部中文、无英文残留、禁止模板腔与省略号结尾\n3. 将生成的日报按 SKILL 中约定的 Markdown 格式写入 cache/generated-report.md\n4. 运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送到 Teams",
-    "timeoutSeconds": 600
+    "timeoutSeconds": 1800
   }
 }
 ```

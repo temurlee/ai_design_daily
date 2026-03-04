@@ -241,6 +241,13 @@ Tabbit 发布：光年之外团队推出 AI 浏览器
 
 ### Cron 定时任务（高质量日报自动发送）
 
+**整体调度原则（推荐）**：
+
+- **串行执行**：先完成“采集任务”，再开始“发送任务”，不要并发执行两者，避免发送阶段读到半成品或旧版本的 `cache/camofox-latest-ids.json`。
+- **失败重试**：在 OpenClaw 中为两个 Cron 任务都配置**最多 1 次自动重试**：
+  - 采集失败：间隔 5–10 分钟后重试 1 次，仍失败则当日记为采集失败但不要无限重试。
+  - 发送失败：重试 1 次即可，避免重复给同一个 Teams 频道推多条相同日报。
+
 **采集任务（每天 9:30，仅采集不发送）**：
 
 1. **账号时间线**：读取 `references/query-presets.json`，**完整遍历** `bloggers` 与 `official` 的每一个账号，用 Camofox 逐个访问其 X 个人页，滚动采集最近 24 小时内推文，只复制 status URL（`https://x.com/.../status/数字`），写入 `cache/camofox-urls.txt`。不得跳过任一账号；失败则记录后继续。
@@ -248,7 +255,7 @@ Tabbit 发布：光年之外团队推出 AI 浏览器
 3. **去重与产出**：运行 `node scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48`，生成 id 列表。汇报采集结果（成功/失败账号数、搜索 query 数、最终 id 数量）。
 4. 本任务**不执行**生成日报或发送。
 
-**发送任务（每天 10:00）**：
+**发送任务（每天 10:00）**（需在“采集任务”完成后再触发，可通过 OpenClaw 的依赖/串行调度或适当拉开时间间隔实现）：
 ```
 Cron 触发子代理 → 子代理：拉取候选 → 用 AI 按 SKILL 生成日报 → 写入文件 → 调用脚本发送
 ```
