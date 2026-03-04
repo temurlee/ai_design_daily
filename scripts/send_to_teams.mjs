@@ -112,15 +112,8 @@ function parseItems(sectionText) {
   return out;
 }
 
-function ensureSummary(summary) {
-  let s = (summary || '').replace(/\s+/g, ' ').trim();
-  if (!s) return '';
-  if (!/设计|设计师|UI|UX|交互|体验|设计系统|产品/i.test(s)) {
-    s += ' 这也会影响产品交互路径与设计协作效率。';
-  }
-  if (s.length < 100) s += ' 对团队而言，这条信息可作为近期产品与设计协同决策的参考。';
-  if (s.length > 140) s = s.slice(0, 139) + '…';
-  return s;
+function normalizeSummary(summary) {
+  return (summary || '').replace(/\s+/g, ' ').trim();
 }
 
 function ensureUrl(url) {
@@ -134,7 +127,7 @@ function parseReport(raw) {
   top10 = top10.slice(0, 10);
 
   for (const it of top10) {
-    it.summary = ensureSummary(it.summary, it.title);
+    it.summary = normalizeSummary(it.summary);
     it.url = ensureUrl(it.url);
   }
 
@@ -152,6 +145,15 @@ function parseReport(raw) {
 
 function validateStructured(data) {
   const issues = [];
+  const redlinePatterns = [
+    /本日报由\s*AI\s*自动生成/i,
+    /来自\s*\d+\s*个博主/i,
+    /折腾是乐趣/,
+    /提醒我们/,
+    /我认为|我觉得|我们认为/,
+    /值得期待|令人振奋|重磅|炸裂/
+  ];
+
   if (data.top10.length !== 10) issues.push(`TOP 10 数量异常（${data.top10.length}/10）`);
   if (!data.summary?.paragraph || !String(data.summary.paragraph).trim()) issues.push('小结与展望缺失或为空');
 
@@ -160,7 +162,15 @@ function validateStructured(data) {
     if (!it.url) issues.push(`TOP 10 第${idx + 1}条链接缺失/非法`);
     if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`TOP 10 第${idx + 1}条为占位摘要，非真实内容`);
     if (it.summary.length < 100 || it.summary.length > 140) issues.push(`TOP 10 第${idx + 1}条摘要长度异常（${it.summary.length}）`);
+    if (/[.…]{2,}|…$|\.\.\.$/.test(it.summary)) issues.push(`TOP 10 第${idx + 1}条摘要含省略结尾或不完整句`);
+    if (/该动态强调|这条信息围绕/.test(it.summary)) issues.push(`TOP 10 第${idx + 1}条摘要出现模板腔`);
+    if (redlinePatterns.some((re) => re.test(it.summary))) issues.push(`TOP 10 第${idx + 1}条摘要触发红线表达`);
   });
+
+  const p = String(data.summary?.paragraph || '').trim();
+  if (p.includes('\n')) issues.push('小结与展望必须为单段，不得换行分段');
+  if (/[.…]{2,}|…$|\.\.\.$/.test(p)) issues.push('小结与展望存在省略号结尾或不完整句');
+  if (redlinePatterns.some((re) => re.test(p))) issues.push('小结与展望触发红线表达（主观发挥/后记/自述）');
 
   return issues;
 }
