@@ -166,13 +166,16 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
 ```
 
 **发送任务（每天 10:00 工作日）**：
+
+子代理需按 SKILL.md「子代理执行指令」执行：先拉取候选数据（运行 generate_report.mjs --candidates-only），再根据 SKILL 与 prompt 用 AI 生成日报正文，写入 cache/generated-report.md，最后运行 send_to_teams.mjs --report-file cache/generated-report.md 发送。详细步骤见 SKILL.md。
+
 ```json
 {
   "name": "AI设计日报自动发送",
   "schedule": { "kind": "cron", "expr": "0 10 * * 1-5", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行AI设计日报生成并发送：\n\n1. 读取 ~/.openclaw/workspace/skills/ai_design_daily/cache/camofox-latest-ids.json\n2. 用 api.fxtwitter.com/status/:id 获取每条推文详情\n3. 按 SKILL.md 规范生成高质量日报（TOP 10 共 10 条 + 小结与展望一段话）\n4. 构造 Adaptive Card 并发送到 Teams webhook\n5. webhook URL 从 .teams-webhook 读取",
+    "message": "执行AI设计日报生成并发送（完整步骤见本 skill 的 SKILL.md「子代理执行指令」）：\n\n1. 在 ai_design_daily 技能根目录运行：node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json\n2. 阅读 SKILL.md 与 prompt.md（若有），根据 cache/candidates.json 中的 candidates 用 AI 生成日报：TOP 10 每条新闻式标题+100-140字中文摘要+链接，小结一段话；全部中文、无英文残留、禁止模板腔与省略号结尾\n3. 将生成的日报按 SKILL 中约定的 Markdown 格式写入 cache/generated-report.md\n4. 运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送到 Teams",
     "timeoutSeconds": 600
   }
 }
@@ -194,7 +197,9 @@ ai_design_daily/
 │   └── query-presets.json      # bloggers 列表
 ├── cache/                      # 运行时缓存（不提交）
 │   ├── camofox-urls.txt
-│   └── camofox-latest-ids.json
+│   ├── camofox-latest-ids.json
+│   ├── candidates.json        # 候选推文（--candidates-only 生成，供 AI 写日报）
+│   └── generated-report.md   # AI 生成的日报正文（子代理写入，--report-file 发送）
 └── .teams-webhook              # Webhook URL（不提交）
 ```
 

@@ -14,6 +14,7 @@ function arg(name, fallback) {
 
 const hours = Number(arg('--hours', '24'));
 const dateArg = arg('--date', null);
+const reportFileArg = arg('--report-file', '');
 const webhookFile = join(dirname(__dirname), '.teams-webhook');
 const fileWebhooks = existsSync(webhookFile) 
   ? readFileSync(webhookFile, 'utf8').split('\n').map(s => s.trim()).filter(Boolean)
@@ -32,6 +33,12 @@ function runGenerate() {
       resolve(stdout.trim());
     });
   });
+}
+
+function readReportFile(filePath) {
+  const fullPath = filePath.startsWith('/') ? filePath : join(dirname(__dirname), filePath);
+  if (!existsSync(fullPath)) throw new Error(`Report file not found: ${fullPath}`);
+  return readFileSync(fullPath, 'utf8').trim();
 }
 
 function getDateLine(text) {
@@ -175,7 +182,7 @@ function buildCard(dateLine, data) {
 }
 
 async function main() {
-  const raw = await runGenerate();
+  const raw = reportFileArg ? readReportFile(reportFileArg) : await runGenerate();
   const dateLine = getDateLine(raw);
   const data = parseReport(raw);
   const issues = validateStructured(data);

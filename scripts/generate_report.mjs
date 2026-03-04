@@ -368,13 +368,36 @@ if (top10.length < 10) {
   }
 }
 
+const mergedSeen = [...new Set([...(cache.seenIds || []), ...fetchIds])].slice(-5000);
+saveCache({ seenIds: mergedSeen, updatedAt: new Date().toISOString() });
+
+const candidatesOnly = args.includes('--candidates-only');
+if (candidatesOnly) {
+  const outArg = arg('--output', 'cache/candidates.json');
+  const outPath = join(baseDir, outArg);
+  mkdirSync(dirname(outPath), { recursive: true });
+  const payload = {
+    reportDate,
+    generatedAt: new Date().toISOString(),
+    candidates: top10.slice(0, 10).map((i) => ({
+      id: i._id,
+      url: i.url,
+      author: i.author || '',
+      snippet: i.snippet || '',
+      title: i.title || '',
+      isDesign: !!i._isDesign,
+      favorites: i.favorites || 0,
+      retweets: i.retweets || 0
+    }))
+  };
+  writeFileSync(outPath, JSON.stringify(payload, null, 2), 'utf8');
+  console.error(`wrote ${payload.candidates.length} candidates to ${outArg}`);
+  process.exit(0);
+}
+
 const top10Text = top10.slice(0, 10).map((x, idx) => formatItem(x, idx)).filter(Boolean).join('\n\n');
 const designCount = top10.filter(x => x._isDesign).length;
 const ratio = top10.length ? Math.round((designCount / top10.length) * 100) : 0;
-
 const summaryParagraph = `过去24小时AI圈整体情绪偏积极，开源项目与产品更新密集。短期内 Agent UX、Design-to-Code 与多模态设计协同仍会持续发酵；对设计/产品形态的影响集中在工作流整合与组件化交付效率上，值得持续关注。（设计相关内容占比约${ratio}%）`;
-
-const mergedSeen = [...new Set([...(cache.seenIds || []), ...fetchIds])].slice(-5000);
-saveCache({ seenIds: mergedSeen, updatedAt: new Date().toISOString() });
 
 console.log(`${reportDate}\n《AI设计日报》\n\n📌 TOP 10\n${top10Text || '暂无满足条件的候选'}\n\n🧭 小结与展望\n${summaryParagraph}`);

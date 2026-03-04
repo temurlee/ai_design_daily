@@ -42,6 +42,12 @@ node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.
 说明：增量详情会通过 `api.fxtwitter.com/status/:id` 获取。
 如需无 ids 文件时强制尝试 fxtwitter 用户发现，可加 `--discover-fallback`（不推荐，稳定性取决于环境）。
 
+### OpenClaw 下由 AI 生成日报再发送（推荐）
+1. 生成候选 JSON：`node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json`
+2. 由子代理根据 SKILL 与 `cache/candidates.json` 用 AI 撰写日报，写入 `cache/generated-report.md`
+3. 发送：`node scripts/send_to_teams.mjs --report-file cache/generated-report.md`  
+详见下方「自动化 → 子代理执行指令」。
+
 ---
 
 ## 文件结构
@@ -226,20 +232,44 @@ Figma 官方回顾了被称为 Auto Layout 月的产品迭代周期。Auto Layou
 
 **发送任务（每天 10:00）**：
 ```
-Cron 触发子代理 → 子代理执行生成+发送
+Cron 触发子代理 → 子代理：拉取候选 → 用 AI 按 SKILL 生成日报 → 写入文件 → 调用脚本发送
 ```
 
-**子代理执行指令**：
-1. 读取 `cache/camofox-latest-ids.json` 获取候选推文
-2. 用 `api.fxtwitter.com/status/:id` 获取每条推文详情
-3. 按 SKILL.md 规范生成高质量日报内容：
-   - **📌 TOP 10**（共 10 条）：全部中文重述，禁止英文原文残留；新闻句式标题，禁止拼接符号；每条 100-140 字深度摘要，禁止省略号结尾
-   - **🧭 小结与展望**：一段话总结当天 AI 整体情绪与趋势，展望可能持续发酵的话题；可侧重对设计/产品形态的短期影响
-4. 构造 Adaptive Card 并发送到 Teams webhook
-5. 发送格式：`{ card }`（不是 message/attachments）
+**子代理执行指令（必须按顺序执行）**：
+
+1. **拉取候选数据**：在 skill 根目录执行  
+   `node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json`  
+   得到 `cache/candidates.json`（内含 `reportDate` 与 `candidates` 数组，每项含 `url`、`author`、`snippet` 等）。
+
+2. **阅读规范**：打开本 SKILL.md 与「用户目标与原则」「不可退化规则」「文风与表达硬规则」；若有 `prompt.md` 则一并阅读，作为生成风格与选条依据。
+
+3. **用 AI 生成日报正文**：根据 `candidates` 中的 10 条推文，由你（AI）撰写：
+   - **TOP 10**：每条一条**新闻式标题**（产品/事件+动作+一句话定位，禁止套用同一句式）+ **100–140 字中文摘要**（先写发生什么再写影响，设计师视角自然融入，禁止英文整句、禁止模板腔、禁止省略号结尾）+ 该条 `url` 用作链接。
+   - **小结与展望**：**一段话**总结当天 AI 整体情绪与趋势、展望可能持续发酵的话题，可侧重设计/产品形态短期影响。
+
+4. **写入日报文件**：将生成的日报按下列 Markdown 格式写入 `cache/generated-report.md`（首行可为日期，便于解析）：
+   ```
+   YYYY年MM月DD日
+   《AI设计日报》
+
+   📌 TOP 10
+   1. [新闻式标题]
+   [100-140字中文摘要]
+   👉 [点击查看](https://x.com/.../status/...)
+
+   2. ...
+   （共 10 条）
+
+   🧭 小结与展望
+   [一段话]
+   ```
+
+5. **发送到 Teams**：执行  
+   `node scripts/send_to_teams.mjs --report-file cache/generated-report.md`  
+   （webhook 从 `.teams-webhook` 或环境变量读取）。发送前脚本会校验条数、摘要长度与格式，不通过则报错不发送。
 
 **手动触发**：
-告诉主代理"发日报"或"执行AI设计日报"
+告诉主代理"发日报"或"执行AI设计日报"，子代理按上述 1～5 步执行。
 
 ---
 
