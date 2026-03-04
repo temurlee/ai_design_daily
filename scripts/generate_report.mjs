@@ -359,34 +359,22 @@ if (items.length < 12) {
 }
 
 const used = new Set();
-const top5 = pickWithRatio(items, 5, 0.7, used);
-let topics = pickWithRatio(items, 9, 0.7, used);
-if (topics.length < 5) {
-  const refill = allItems.filter(i => !used.has(i._id)).slice(0, 5 - topics.length);
-  topics = [...topics, ...refill];
-  for (const i of refill) used.add(i._id);
+const top10 = pickWithRatio(items, 10, 0.7, used);
+if (top10.length < 10) {
+  const refill = allItems.filter(i => !used.has(i._id)).slice(0, 10 - top10.length);
+  for (const i of refill) {
+    top10.push(i);
+    used.add(i._id);
+  }
 }
-const voices = pickVoices(items, 4);
 
-const topText = top5.map((x, idx) => formatItem(x, idx)).filter(Boolean).join('\n\n');
-const topicText = topics.map((x, idx) => formatItem(x, idx)).filter(Boolean).join('\n\n');
-const voiceText = voices.map((x, idx) => formatVoiceItem(x, idx)).filter(Boolean).join('\n\n');
+const top10Text = top10.slice(0, 10).map((x, idx) => formatItem(x, idx)).filter(Boolean).join('\n\n');
+const designCount = top10.filter(x => x._isDesign).length;
+const ratio = top10.length ? Math.round((designCount / top10.length) * 100) : 0;
 
-const designCount = [...top5, ...topics].filter(x => x._isDesign).length;
-const ratio = (top5.length + topics.length) ? Math.round((designCount / (top5.length + topics.length)) * 100) : 0;
-
-const trends = [
-  'Agent UX 与多模态交互正在从“演示可行”走向“流程可用”，设计评估重心转向任务成功率与认知负担。',
-  'Design-to-Code 继续升温，团队会更关注组件语义映射与设计系统约束是否可被模型稳定执行。',
-  'AI 设计工具竞争从“功能堆叠”转向“工作流整合”，谁能缩短需求到上线链路谁更有优势。'
-];
-const focus = [
-  '高热帖子中的方法论是否可复用到企业级产品，而非仅适用于个人创作场景。',
-  '模型能力提升是否伴随可解释性与伦理边界建设，避免在设计决策中引入隐性偏差。',
-  '产品账号与KOL叙事差异背后的信号：哪些是短期传播，哪些是长期范式变化。'
-];
+const summaryParagraph = `过去24小时AI圈整体情绪偏积极，开源项目与产品更新密集。短期内 Agent UX、Design-to-Code 与多模态设计协同仍会持续发酵；对设计/产品形态的影响集中在工作流整合与组件化交付效率上，值得持续关注。（设计相关内容占比约${ratio}%）`;
 
 const mergedSeen = [...new Set([...(cache.seenIds || []), ...fetchIds])].slice(-5000);
 saveCache({ seenIds: mergedSeen, updatedAt: new Date().toISOString() });
 
-console.log(`${reportDate}\n《AI设计日报》\n\n🔥 头条热点（Top 5）\n${topText || '暂无满足条件的候选'}\n\n📈 热门话题榜（Top 5-10）\n${topicText || '暂无满足条件的候选'}\n\n🗣️ AI自媒体声音（Top 3-5）\n${voiceText || '暂无满足条件的候选'}\n\n🧭 小结与展望\n短期趋势：\n• ${trends[0]}\n• ${trends[1]}\n• ${trends[2]}\n\n持续关注：\n• ${focus[0]}\n• ${focus[1]}\n• ${focus[2]}\n\n（设计相关内容占比约${ratio}%）`);
+console.log(`${reportDate}\n《AI设计日报》\n\n📌 TOP 10\n${top10Text || '暂无满足条件的候选'}\n\n🧭 小结与展望\n${summaryParagraph}`);

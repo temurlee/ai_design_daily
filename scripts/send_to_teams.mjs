@@ -107,74 +107,38 @@ function ensureUrl(url) {
 }
 
 function parseReport(raw) {
-  const topText = sectionSlice(raw, '🔥 头条热点（Top 5）', ['📈 热门话题榜（Top 5-10）']);
-  const topicText = sectionSlice(raw, '📈 热门话题榜（Top 5-10）', ['🗣️ AI自媒体声音（Top 3-5）']);
-  const voiceText = sectionSlice(raw, '🗣️ AI自媒体声音（Top 3-5）', ['🧭 小结与展望']);
+  const top10Text = sectionSlice(raw, '📌 TOP 10', ['🧭 小结与展望']);
+  let top10 = parseItems(top10Text);
+  top10 = top10.slice(0, 10);
 
-  let top5 = parseItems(topText);
-  let topics = parseItems(topicText);
-  let voices = parseItems(voiceText);
-
-  top5 = top5.slice(0, 5);
-  topics = topics.slice(0, 5);
-  voices = voices.slice(0, 5);
-
-  // 若自媒体声音不足，从其它真实条目中补齐（不造内容）
-  if (voices.length < 5) {
-    const used = new Set(voices.map(v => v.url));
-    const pool = [...topics, ...top5].filter(x => x.url && !used.has(x.url));
-    for (const p of pool) {
-      if (voices.length >= 5) break;
-      voices.push({ ...p });
-      used.add(p.url);
-    }
-  }
-
-
-  for (const arr of [top5, topics, voices]) {
-    for (const it of arr) {
-      it.summary = ensureSummary(it.summary, it.title);
-      it.url = ensureUrl(it.url);
-    }
+  for (const it of top10) {
+    it.summary = ensureSummary(it.summary, it.title);
+    it.url = ensureUrl(it.url);
   }
 
   const summaryPart = sectionSlice(raw, '🧭 小结与展望', []);
-  let trends = [];
-  let focus = [];
-  const lines = summaryPart.split('\n').map(x => x.trim()).filter(Boolean);
-  let mode = '';
-  for (const line of lines) {
-    if (/^短期趋势/.test(line)) { mode = 'trends'; continue; }
-    if (/^持续关注/.test(line)) { mode = 'focus'; continue; }
-    if (/^[•\-]/.test(line)) {
-      if (mode === 'trends') trends.push(line.replace(/^[•\-]\s*/, ''));
-      if (mode === 'focus') focus.push(line.replace(/^[•\-]\s*/, ''));
-    }
-  }
-  while (trends.length < 3) trends.push('AI辅助设计流程将继续向可执行工作流演进');
-  while (focus.length < 3) focus.push('Design-to-Code 在真实项目中的质量与一致性控制');
-  trends = trends.slice(0, 3);
-  focus = focus.slice(0, 3);
+  const paragraph = summaryPart
+    .split('\n')
+    .map(x => x.trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim() || '过去24小时AI圈整体情绪与趋势、可能持续发酵的话题及对设计/产品形态的短期影响，详见当日推文。';
 
-  return { top5, topics, voices, summary: { trends, focus } };
+  return { top10, summary: { paragraph } };
 }
 
 function validateStructured(data) {
   const issues = [];
-  if (data.top5.length !== 5) issues.push(`头条热点数量异常（${data.top5.length}/5）`);
-  if (data.topics.length !== 5) issues.push(`热门话题榜数量异常（${data.topics.length}/5）`);
-  if (data.voices.length !== 5) issues.push(`AI自媒体声音数量异常（${data.voices.length}/5）`);
+  if (data.top10.length !== 10) issues.push(`TOP 10 数量异常（${data.top10.length}/10）`);
+  if (!data.summary?.paragraph || !String(data.summary.paragraph).trim()) issues.push('小结与展望缺失或为空');
 
-  for (const [name, arr] of [['头条热点', data.top5], ['热门话题榜', data.topics], ['AI自媒体声音', data.voices]]) {
-    arr.forEach((it, idx) => {
-      if (!it.title) issues.push(`${name} 第${idx + 1}条标题缺失`);
-      if (!it.url) issues.push(`${name} 第${idx + 1}条链接缺失/非法`);
-      if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`${name} 第${idx + 1}条为占位摘要，非真实内容`);
-      if (it.summary.length < 100 || it.summary.length > 140) issues.push(`${name} 第${idx + 1}条摘要长度异常（${it.summary.length}）`);
-      // 设计相关性由生成阶段控制，这里不做硬拦截，避免误杀有效新闻摘要
-    });
-  }
-  if (data.summary.trends.length !== 3 || data.summary.focus.length !== 3) issues.push('小结与展望需各3条');
+  data.top10.forEach((it, idx) => {
+    if (!it.title) issues.push(`TOP 10 第${idx + 1}条标题缺失`);
+    if (!it.url) issues.push(`TOP 10 第${idx + 1}条链接缺失/非法`);
+    if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`TOP 10 第${idx + 1}条为占位摘要，非真实内容`);
+    if (it.summary.length < 100 || it.summary.length > 140) issues.push(`TOP 10 第${idx + 1}条摘要长度异常（${it.summary.length}）`);
+  });
 
   return issues;
 }
@@ -201,20 +165,11 @@ function buildCard(dateLine, data) {
       { type: 'TextBlock', text: 'AI设计日报Beta（TAI-IPX x 🦞）', size: 'Large', weight: 'Bolder', wrap: true },
       { type: 'TextBlock', text: '追踪过去24小时AI前沿热点事件', isSubtle: true, spacing: 'None', wrap: true },
 
-      sectionHeader('🔥', '头条热点（Top 5）'),
-      ...data.top5.flatMap((x, i) => itemBlocks(x, i)),
-
-      sectionHeader('📈', '热门话题榜（Top 5）'),
-      ...data.topics.flatMap((x, i) => itemBlocks(x, i)),
-
-      sectionHeader('🗣️', 'AI自媒体声音（Top 5）'),
-      ...data.voices.flatMap((x, i) => itemBlocks(x, i)),
+      sectionHeader('📌', 'TOP 10'),
+      ...data.top10.flatMap((x, i) => itemBlocks(x, i)),
 
       sectionHeader('🧭', '小结与展望'),
-      { type: 'TextBlock', text: '短期趋势：', weight: 'Bolder', wrap: true, spacing: 'Medium' },
-      { type: 'TextBlock', text: data.summary.trends.map(t => `• ${t}`).join('\n'), wrap: true, spacing: 'Small' },
-      { type: 'TextBlock', text: '持续关注：', weight: 'Bolder', wrap: true, spacing: 'Medium' },
-      { type: 'TextBlock', text: data.summary.focus.map(t => `• ${t}`).join('\n'), wrap: true, spacing: 'Small' }
+      { type: 'TextBlock', text: data.summary.paragraph, wrap: true, spacing: 'Medium' }
     ]
   };
 }

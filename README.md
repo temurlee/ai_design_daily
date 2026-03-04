@@ -7,7 +7,7 @@
 - 🦊 **Camofox 采集**：子代理自动访问 bloggers 列表，采集推文 URL 并生成 ID 文件
 - 🤖 **AI 生成日报**：按规范生成中文新闻式标题和摘要
 - 📤 **多渠道发送**：支持 Teams（Adaptive Card），可扩展其他渠道
-- ⏰ **Cron 自动化**：配合 OpenClaw 实现定时执行（采集 10:00，发送 11:00）
+- ⏰ **Cron 自动化**：配合 OpenClaw 实现定时执行（采集 9:30，发送 10:00）
 
 ## 依赖
 
@@ -23,7 +23,7 @@
 │                        OpenClaw 主进程                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│   10:00 Cron ──────► 子代理 A（采集任务）                        │
+│   9:30 Cron ──────► 子代理 A（采集任务）                        │
 │                          │                                      │
 │                          ▼                                      │
 │                   ┌─────────────┐                               │
@@ -34,7 +34,7 @@
 │                          ▼                                      │
 │                   camofox-latest-ids.json                       │
 │                          │                                      │
-│   11:00 Cron ──────► 子代理 B（生成发送）                        │
+│   10:00 Cron ──────► 子代理 B（生成发送）                        │
 │                          │                                      │
 │                          ▼                                      │
 │                   ┌─────────────┐                               │
@@ -54,7 +54,7 @@
 ### 数据流
 
 ```
-1. 采集阶段（10:00）
+1. 采集阶段（9:30）
    ┌──────────┐    ┌──────────────┐    ┌─────────────────┐
    │ bloggers │───►│ Camofox 访问  │───►│ 推文 URL 列表    │
    │ 列表     │    │ Twitter 账号  │    │ camofox-urls.txt│
@@ -72,7 +72,7 @@
                                       │ latest-ids.json │
                                       └─────────────────┘
 
-2. 生成发送阶段（11:00）
+2. 生成发送阶段（10:00）
    ┌─────────────────┐    ┌──────────────┐    ┌─────────────┐
    │ latest-ids.json │───►│ fxtwitter API│───►│ 推文详情     │
    └─────────────────┘    │ 获取内容     │    │ (text, etc) │
@@ -81,10 +81,8 @@
                                                      ▼
                           ┌──────────────────────────────────┐
                           │         AI 生成日报              │
-                          │  • 头条热点 Top 5                │
-                          │  • 热门话题榜 Top 5              │
-                          │  • AI自媒体声音 Top 5            │
-                          │  • 小结与展望                    │
+                          │  • TOP 10（10 条）               │
+                          │  • 小结与展望（一段话）           │
                           └──────────────┬───────────────────┘
                                          │
                                          ▼
@@ -154,27 +152,27 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
 
 在 OpenClaw 中创建两个 Cron 任务：
 
-**采集任务（每天 10:00 工作日）**：
+**采集任务（每天 9:30 工作日）**：
 ```json
 {
   "name": "AI日报 Camofox 采集",
-  "schedule": { "kind": "cron", "expr": "0 10 * * 1-5", "tz": "Asia/Shanghai" },
+  "schedule": { "kind": "cron", "expr": "30 9 * * 1-5", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行AI日报 Camofox 采集：\n\n1. 读取 ~/.openclaw/workspace/skills/ai_design_daily/references/query-presets.json 获取 bloggers 列表\n2. 使用 Camofox 浏览器逐个访问每个 blogger 的 Twitter profile 页面\n3. 滚动页面采集最近 24 小时内的推文，复制每条推文的 status URL\n4. 将所有 URL 写入 ~/.openclaw/workspace/skills/ai_design_daily/cache/camofox-urls.txt\n5. 运行 node ~/.openclaw/workspace/skills/ai_design_daily/scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48\n6. 汇报采集结果",
+    "message": "执行AI日报 Camofox 采集：\n\n1. 读取 ~/.openclaw/workspace/skills/ai_design_daily/references/query-presets.json，获取 bloggers 与 official 完整列表\n2. 必须完整遍历上述列表中每一个账号，不得跳过。使用 Camofox 浏览器逐个访问每个账号的 Twitter profile 页面\n3. 滚动页面采集最近 24 小时内的推文，复制每条推文的 status URL\n4. 将所有 URL 写入 ~/.openclaw/workspace/skills/ai_design_daily/cache/camofox-urls.txt\n5. 运行 node ~/.openclaw/workspace/skills/ai_design_daily/scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48\n6. 汇报采集结果：成功与失败的账号列表",
     "timeoutSeconds": 1800
   }
 }
 ```
 
-**发送任务（每天 11:00 工作日）**：
+**发送任务（每天 10:00 工作日）**：
 ```json
 {
   "name": "AI设计日报自动发送",
-  "schedule": { "kind": "cron", "expr": "0 11 * * 1-5", "tz": "Asia/Shanghai" },
+  "schedule": { "kind": "cron", "expr": "0 10 * * 1-5", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行AI设计日报生成并发送：\n\n1. 读取 ~/.openclaw/workspace/skills/ai_design_daily/cache/camofox-latest-ids.json\n2. 用 api.fxtwitter.com/status/:id 获取每条推文详情\n3. 按 SKILL.md 规范生成高质量日报\n4. 构造 Adaptive Card 并发送到 Teams webhook\n5. webhook URL 从 .teams-webhook 读取",
+    "message": "执行AI设计日报生成并发送：\n\n1. 读取 ~/.openclaw/workspace/skills/ai_design_daily/cache/camofox-latest-ids.json\n2. 用 api.fxtwitter.com/status/:id 获取每条推文详情\n3. 按 SKILL.md 规范生成高质量日报（TOP 10 共 10 条 + 小结与展望一段话）\n4. 构造 Adaptive Card 并发送到 Teams webhook\n5. webhook URL 从 .teams-webhook 读取",
     "timeoutSeconds": 600
   }
 }
@@ -194,8 +192,6 @@ ai_design_daily/
 │   └── test_card.mjs           # 测试卡片脚本
 ├── references/
 │   └── query-presets.json      # bloggers 列表
-├── assets/
-│   └── daily-template.md       # 日报模板
 ├── cache/                      # 运行时缓存（不提交）
 │   ├── camofox-urls.txt
 │   └── camofox-latest-ids.json
@@ -223,10 +219,8 @@ ai_design_daily/
 
 ## 日报格式
 
-- **头条热点** Top 5：当日最重要 AI/设计事件
-- **热门话题榜** Top 5：热议话题和产品动态
-- **AI自媒体声音** Top 5：博主观点整合
-- **小结与展望**：短期趋势 + 持续关注
+- **TOP 10**：10 条当日重要 AI/设计事件与观点（每条：标题 + 100–140 字摘要 + 链接）
+- **小结与展望**：一段话总结当天 AI 整体情绪与趋势，展望可能持续发酵的话题；可侧重对设计/产品形态的短期影响
 
 ## License
 
