@@ -232,6 +232,10 @@ Tabbit 发布：光年之外团队推出 AI 浏览器
 
 ### Cron 定时任务（高质量日报自动发送）
 
+**约束（强制）**：
+- **每次触发发送任务 = 全链路重跑**：不得复用前一日或更早的 `cache/camofox-urls.txt`、`cache/camofox-latest-ids.json`、`cache/fxtwitter-state.json` 直接出日报；必须从「采集 → 生成 ID → fxtwitter 拉取详情 → AI 写稿 → `--report-file` 发送」全链路重新执行一遍。
+- **采集内容必须完整覆盖来源**：一次采集任务必须尝试访问 `query-presets.json` 中 `bloggers` 与 `official` 的**每一个账号**（逐个访问 profile，不得跳过）；若某账号失败则记录 handle 与原因并继续，最终在汇报中给出「成功/失败账号列表」，在未尝试完整账号列表前不得宣称采集完成。
+
 **采集任务（每天 9:30，仅采集不发送）**：
 - 子代理读取 `references/query-presets.json`，**完整遍历**其中 `bloggers` 与 `official` 的每一个账号，使用 Camofox 逐个访问其 Twitter 个人页，滚动采集最近 24 小时内推文 URL，写入 `cache/camofox-urls.txt`，再运行 `collect_ids_camofox.mjs` 生成 `cache/camofox-latest-ids.json`
 - **不得跳过任一账号**；失败则记录后继续，最后汇报采集结果（成功/失败账号列表）

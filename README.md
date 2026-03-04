@@ -229,11 +229,12 @@ ai_design_daily/
 
 ## 运行约定（重要）
 
-- **正式完整跑** = 完全重头开始：
+- **每次触发发送任务 = 全链路重跑（强制）**：必须全部重新执行以下步骤，不得复用旧缓存：
   - 不复用旧 `cache/camofox-urls.txt`
   - 不复用旧 `cache/camofox-latest-ids.json`
   - 不复用旧 `cache/fxtwitter-state.json`
   - 从采集 → 生成 ID → AI 写稿 → `--report-file` 发送全链路重跑
+- **采集完整性约束**：一次采集任务必须完整覆盖来源——已尝试访问 `bloggers` 与 `official` 的每一个账号（不得跳过），并在汇报中给出成功/失败账号列表后，方可进入发送阶段。
 - 发送阶段必须显式使用：
 
 ```bash
