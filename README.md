@@ -55,25 +55,22 @@
 
 ```
 1. 采集阶段（9:30）
-   ┌──────────┐    ┌──────────────┐
-   │ bloggers │───►│ Camofox 访问  │──┐
-   │ +official│    │ 账号时间线    │  │
-   └──────────┘    └──────────────┘  │    ┌─────────────────┐
-                                      ├───►│ 推文 URL 列表    │
-   ┌──────────────┐    ┌──────────┐  │    │ camofox-urls.txt│
-   │ designKeywords│───►│ Camofox  │──┘    └────────┬────────┘
-   │ generalKeywords│   │ 搜索页   │                 │
-   └──────────────┘    └──────────┘                  ▼
-                                                ┌─────────────────┐
-                                                │ collect_ids     │
-                                                │ 脚本处理        │
-                                                └────────┬────────┘
-                                                         │
-                                                         ▼
-                                                ┌─────────────────┐
-                                                │ 推文 ID 列表     │
-                                                │ latest-ids.json │
-                                                └─────────────────┘
+   ┌──────────┐    ┌──────────────┐    ┌─────────────────┐
+   │ bloggers │───►│ Camofox 访问  │───►│ 推文 URL 列表    │
+   │ 列表     │    │ Twitter 账号  │    │ camofox-urls.txt│
+   └──────────┘    └──────────────┘    └────────┬────────┘
+                                               │
+                                               ▼
+                                      ┌─────────────────┐
+                                      │ collect_ids     │
+                                      │ 脚本处理        │
+                                      └────────┬────────┘
+                                               │
+                                               ▼
+                                      ┌─────────────────┐
+                                      │ 推文 ID 列表     │
+                                      │ latest-ids.json │
+                                      └─────────────────┘
 
 2. 生成发送阶段（10:00）
    ┌─────────────────┐    ┌──────────────┐    ┌─────────────┐
@@ -153,10 +150,7 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
 
 ### 4. 配置 Cron 任务
 
-在 OpenClaw 中创建两个 Cron 任务，**推荐策略**：
-
-- **串行**：先等“采集任务”明确 finished，再触发“发送任务”，避免发送阶段读取到半成品 `camofox-latest-ids.json`。
-- **重试**：采集失败时自动重试 1 次（间隔 5–10 分钟），发送失败时只重试 1 次，避免重复发消息。
+在 OpenClaw 中创建两个 Cron 任务：
 
 **采集任务（每天 9:30 工作日）**：
 ```json
@@ -165,7 +159,7 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
   "schedule": { "kind": "cron", "expr": "30 9 * * 1-5", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行AI日报 Camofox 采集（完整步骤见 SKILL.md「采集任务」）：\n\n1. 读取 query-presets.json，完整遍历 bloggers 与 official 每一个账号，用 Camofox 访问其 X 个人页，滚动采集最近 24 小时内推文，只复制 status URL，写入 cache/camofox-urls.txt\n2. 从 query-presets 的 designKeywords、generalKeywords 取 2–3+2–3 个关键词，拼成 2–4 个搜索 query（OR 连接、URL 编码），用 Camofox 访问 x.com/search?q=...&f=live，每个 query 滚动采集一屏到两屏推文，只复制 status URL，追加到同一 cache/camofox-urls.txt\n3. 运行 node scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48\n4. 汇报采集结果：成功/失败账号数、搜索 query 数、最终 id 数量",
+    "message": "执行AI日报 Camofox 采集：\n\n1. 读取 ~/.openclaw/workspace/skills/ai_design_daily/references/query-presets.json，获取 bloggers 与 official 完整列表\n2. 必须完整遍历上述列表中每一个账号，不得跳过。使用 Camofox 浏览器逐个访问每个账号的 Twitter profile 页面\n3. 滚动页面采集最近 24 小时内的推文，复制每条推文的 status URL\n4. 将所有 URL 写入 ~/.openclaw/workspace/skills/ai_design_daily/cache/camofox-urls.txt\n5. 运行 node ~/.openclaw/workspace/skills/ai_design_daily/scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 24\n6. 汇报采集结果：成功与失败的账号列表",
     "timeoutSeconds": 3600
   }
 }
@@ -182,7 +176,7 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
   "payload": {
     "kind": "agentTurn",
     "message": "执行AI设计日报生成并发送（完整步骤见本 skill 的 SKILL.md「子代理执行指令」）：\n\n1. 在 ai_design_daily 技能根目录运行：node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json\n2. 阅读 SKILL.md 与 prompt.md（若有），根据 cache/candidates.json 中的 candidates 用 AI 生成日报：TOP 10 每条新闻式标题+100-140字中文摘要+链接，小结一段话；全部中文、无英文残留、禁止模板腔与省略号结尾\n3. 将生成的日报按 SKILL 中约定的 Markdown 格式写入 cache/generated-report.md\n4. 运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送到 Teams",
-    "timeoutSeconds": 1800
+    "timeoutSeconds": 600
   }
 }
 ```
@@ -235,14 +229,11 @@ ai_design_daily/
 
 ## 运行约定（重要）
 
-- **正式完整跑** = 完全重头开始（适用于每次“AI设计日报生成并发送”任务）：
+- **正式完整跑** = 完全重头开始：
   - 不复用旧 `cache/camofox-urls.txt`
   - 不复用旧 `cache/camofox-latest-ids.json`
   - 不复用旧 `cache/fxtwitter-state.json`
-  - 必须基于当日最新一次采集结果，从「采集 → 生成 ID → fxtwitter 拉取详情 → AI 写稿 → `--report-file` 发送」全链路重跑，而不是只重跑后半段。
-- **采集完整性约束**：一次采集任务只有在**同时满足**下列条件时才算完成：
-  - 已尝试访问 `references/query-presets.json` 中 `bloggers` 与 `official` 的每一个账号（逐个访问 profile，不得跳过），并在日志/汇报中给出“成功/失败账号列表”；
-  - 已对预设的每一条搜索 query 执行采集（包括设计向与通用向），并在日志/汇报中给出“成功/失败 query 列表”。
+  - 从采集 → 生成 ID → AI 写稿 → `--report-file` 发送全链路重跑
 - 发送阶段必须显式使用：
 
 ```bash
