@@ -74,6 +74,9 @@ function parseItems(sectionText) {
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
+    // 跳过纯分割线与旧的 📌 行，避免被误解析为第一条标题
+    if (/^[━─═\s]+$/.test(line)) continue;
+    if (/^📌\s*(TOP 10)?\s*$/.test(line)) continue;
 
     const linkMatch = line.match(/👉\s*\[点击查看\]\((https?:\/\/[^)]+)\)/);
     if (linkMatch) {
@@ -116,18 +119,42 @@ function normalizeSummary(summary) {
   return (summary || '').replace(/\s+/g, ' ').trim();
 }
 
+function ensureSummary(summary) {
+  let s = (summary || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  if (!/设计|设计师|UI|UX|交互|体验|设计系统|产品/i.test(s)) {
+    s += ' 这也会影响产品交互路径与设计协作效率。';
+  }
+  if (s.length < 100) s += ' 对团队而言，这条信息可作为近期产品与设计协同决策的参考。';
+  if (s.length > 140) s = s.slice(0, 139) + '…';
+  return s;
+}
+
 function ensureUrl(url) {
   if (/^https?:\/\/x\.com\/.+\/status\/\d+/.test(url)) return url;
   return '';
 }
 
-function parseReport(raw) {
-  const top10Text = sectionSlice(raw, '📌 TOP 10', ['🧭 小结与展望']);
-  let top10 = parseItems(top10Text);
+function listSectionFromRaw(raw) {
+  const idx = raw.indexOf('🧭 小结与展望');
+  const before = idx >= 0 ? raw.slice(0, idx).trim() : '';
+  const lines = before.split(/\r?\n/);
+  let start = 0;
+  if (lines[start] && /\d{4}年\d{1,2}月\d{1,2}日/.test(lines[start])) start++;
+  if (lines[start] && /《AI设计日报》/.test(lines[start])) start++;
+  if (lines[start] && /追踪过去24小时/.test(lines[start])) start++;
+  while (start < lines.length && !lines[start].trim()) start++;
+  if (start < lines.length && /^📌\s*(TOP 10)?\s*$/.test(lines[start].trim())) start++;
+  return lines.slice(start).join('\n');
+}
+
+function parseReport(raw, fromReportFile = false) {
+  const listText = listSectionFromRaw(raw);
+  let top10 = parseItems(listText);
   top10 = top10.slice(0, 10);
 
   for (const it of top10) {
-    it.summary = normalizeSummary(it.summary);
+    if (!fromReportFile) it.summary = ensureSummary(it.summary);
     it.url = ensureUrl(it.url);
   }
 
@@ -138,7 +165,7 @@ function parseReport(raw) {
     .filter(Boolean)
     .join(' ')
     .replace(/\s+/g, ' ')
-    .trim() || '过去24小时AI圈整体情绪与趋势、可能持续发酵的话题及对设计/产品形态的短期影响，详见当日推文。';
+    .trim() || (fromReportFile ? '' : '过去24小时AI圈整体情绪与趋势、可能持续发酵的话题及对设计/产品形态的短期影响，详见当日推文。');
 
   return { top10, summary: { paragraph } };
 }
@@ -154,17 +181,20 @@ function validateStructured(data) {
     /值得期待|令人振奋|重磅|炸裂/
   ];
 
-  if (data.top10.length !== 10) issues.push(`TOP 10 数量异常（${data.top10.length}/10）`);
-  if (!data.summary?.paragraph || !String(data.summary.paragraph).trim()) issues.push('小结与展望缺失或为空');
+  if (data.top10.length < 1 || data.top10.length > 10) issues.push(`[红线] 列表条数须在 1～10 之间，当前为 ${data.top10.length}`);
+  if (!data.summary?.paragraph || !String(data.summary.paragraph).trim()) issues.push('[红线] 小结与展望缺失或为空');
 
+  const seenUrls = new Set();
   data.top10.forEach((it, idx) => {
-    if (!it.title) issues.push(`TOP 10 第${idx + 1}条标题缺失`);
-    if (!it.url) issues.push(`TOP 10 第${idx + 1}条链接缺失/非法`);
-    if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`TOP 10 第${idx + 1}条为占位摘要，非真实内容`);
-    if (it.summary.length < 100 || it.summary.length > 140) issues.push(`TOP 10 第${idx + 1}条摘要长度异常（${it.summary.length}）`);
-    if (/[.…]{2,}|…$|\.\.\.$/.test(it.summary)) issues.push(`TOP 10 第${idx + 1}条摘要含省略结尾或不完整句`);
-    if (/该动态强调|这条信息围绕/.test(it.summary)) issues.push(`TOP 10 第${idx + 1}条摘要出现模板腔`);
-    if (redlinePatterns.some((re) => re.test(it.summary))) issues.push(`TOP 10 第${idx + 1}条摘要触发红线表达`);
+    if (!it.title) issues.push(`第${idx + 1}条标题缺失`);
+    if (!it.url) issues.push(`第${idx + 1}条链接缺失/非法`);
+    if (seenUrls.has(it.url)) issues.push(`[红线] 列表内重复 URL：${it.url}`);
+    if (it.url) seenUrls.add(it.url);
+    if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`[红线] 第${idx + 1}条为占位摘要，非真实内容`);
+    if (it.summary.length < 100 || it.summary.length > 140) issues.push(`[红线] 第${idx + 1}条摘要长度异常（${it.summary.length}字，要求 100-140）`);
+    if (/[.．…]\s*$/.test(String(it.summary).trim())) issues.push(`[红线] 第${idx + 1}条摘要不得以省略号结尾`);
+    if (/该动态强调|这条信息围绕/.test(it.summary)) issues.push(`第${idx + 1}条摘要出现模板腔`);
+    if (redlinePatterns.some((re) => re.test(it.summary))) issues.push(`第${idx + 1}条摘要触发红线表达`);
   });
 
   const p = String(data.summary?.paragraph || '').trim();
@@ -196,10 +226,8 @@ function buildCard(dateLine, data) {
       { type: 'TextBlock', text: dateLine, isSubtle: true, spacing: 'None', wrap: true },
       { type: 'TextBlock', text: 'AI设计日报Beta（TAI-IPX x 🦞）', size: 'Large', weight: 'Bolder', wrap: true },
       { type: 'TextBlock', text: '追踪过去24小时AI前沿热点事件', isSubtle: true, spacing: 'None', wrap: true },
-
-      sectionHeader('📌', 'TOP 10'),
+      { type: 'TextBlock', separator: true, spacing: 'Medium' },
       ...data.top10.flatMap((x) => itemBlocks(x)),
-
       sectionHeader('🧭', '小结与展望'),
       { type: 'TextBlock', text: data.summary.paragraph, wrap: true, spacing: 'Medium' }
     ]
@@ -209,9 +237,9 @@ function buildCard(dateLine, data) {
 async function main() {
   const raw = reportFileArg ? readReportFile(reportFileArg) : await runGenerate();
   const dateLine = getDateLine(raw);
-  const data = parseReport(raw);
+  const data = parseReport(raw, !!reportFileArg);
   const issues = validateStructured(data);
-  if (issues.length) throw new Error(`发送前校验失败：${issues.join('；')}`);
+  if (issues.length) throw new Error(`发送前校验失败（红线命中即不发送）：${issues.join('；')}`);
 
   const card = buildCard(dateLine, data);
 

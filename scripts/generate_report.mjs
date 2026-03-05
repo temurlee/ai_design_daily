@@ -24,8 +24,9 @@ const now = new Date();
 const reportDate = dateArg || `${now.getUTCFullYear()}年${String(now.getUTCMonth() + 1).padStart(2, '0')}月${String(now.getUTCDate()).padStart(2, '0')}日`;
 const cutoff = Date.now() - hours * 3600 * 1000;
 
+const allHandles = (presets.bloggers || []).concat(presets.official || []);
 const productAccounts = new Set(['@diabrowser', '@comet', '@cursor_ai', '@tomkrcha', '@figma']);
-const bloggerAccounts = new Set((presets.bloggers || []).map(x => String(x).toLowerCase()));
+const bloggerAccounts = new Set(allHandles.map(x => String(x).toLowerCase()));
 const designLexicon = ['ui', 'ux', 'figma', 'design', '交互', '界面', '设计', 'workflow', 'agent ux', 'agentic', 'token', 'component', 'prototype', 'canvas', 'design system', 'a2ui', 'genui', 'svg', 'mcp', 'multimodal', 'generative ui', 'design-to-code'];
 const insightLexicon = ['why', 'because', 'tradeoff', 'heuristic', 'workflow', '实践', '方法', '框架', '拆解', '原理', '对比', '成本', '风险', '效率', '可用性', '一致性', '心智负担'];
 const aiLexicon = ['ai', '人工智能', 'llm', '大模型', 'grok', 'chatgpt', 'claude', 'gemini', 'openai', 'anthropic', 'xai', 'agent', 'copilot', '模型', '推理'];
@@ -200,6 +201,34 @@ async function getJson(url) {
   return res.json();
 }
 
+async function getText(url) {
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AI-design-daily/1)' } });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.text();
+}
+
+/** 从 fxtwitter 网页 HTML 解析推文正文与作者（兜底用，不解析 API 误返回的 HTML） */
+function parseTweetFromFxtwitterHtml(html, id, handle) {
+  const user = (handle || '').replace(/^@/, '') || 'i';
+  const url = `https://x.com/${user}/status/${id}`;
+  let text = '';
+  const ogDesc = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)["']/i) || html.match(/<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:description["']/i);
+  if (ogDesc && ogDesc[1]) text = ogDesc[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+  const authorScreen = user === 'i' ? '' : user;
+  return {
+    _id: String(id),
+    url,
+    title: `${authorScreen ? '@' + authorScreen + ' ' : ''}${String(text).slice(0, 120)}`.trim(),
+    snippet: text,
+    author: authorScreen ? `@${authorScreen}` : '',
+    posted_at: null,
+    created_timestamp: null,
+    favorites: 0,
+    retweets: 0,
+    _source: 'fxtwitter-html'
+  };
+}
+
 function extractPossibleStatuses(node, acc = []) {
   if (!node) return acc;
   if (Array.isArray(node)) {
@@ -227,21 +256,34 @@ async function fetchLatestByHandle(handle) {
   return [...dedup.values()].slice(0, 60);
 }
 
-async function fetchStatusDetail(id) {
-  const data = await getJson(`https://api.fxtwitter.com/status/${id}`);
-  const t = data?.tweet || data?.status || data;
-  const authorScreen = t?.author?.screen_name || t?.author?.username || t?.author?.name || '';
-  return {
-    _id: String(t?.id || id),
-    url: t?.url || `https://x.com/${authorScreen || 'i'}/status/${id}`,
-    title: `${authorScreen ? '@' + authorScreen : ''} ${String(t?.text || '').slice(0, 120)}`.trim(),
-    snippet: String(t?.text || ''),
-    author: authorScreen ? `@${authorScreen}` : '',
-    posted_at: t?.created_at || null,
-    created_timestamp: Number(t?.created_timestamp || 0) || null,
-    favorites: Number(t?.likes || t?.favorite_count || 0) || 0,
-    retweets: Number(t?.retweets || t?.retweet_count || 0) || 0
-  };
+async function fetchStatusDetail(id, handleForFallback = null) {
+  try {
+    const data = await getJson(`https://api.fxtwitter.com/status/${id}`);
+    const t = data?.tweet || data?.status || data;
+    const authorScreen = t?.author?.screen_name || t?.author?.username || t?.author?.name || '';
+    return {
+      _id: String(t?.id || id),
+      url: t?.url || `https://x.com/${authorScreen || 'i'}/status/${id}`,
+      title: `${authorScreen ? '@' + authorScreen : ''} ${String(t?.text || '').slice(0, 120)}`.trim(),
+      snippet: String(t?.text || ''),
+      author: authorScreen ? `@${authorScreen}` : '',
+      posted_at: t?.created_at || null,
+      created_timestamp: Number(t?.created_timestamp || 0) || null,
+      favorites: Number(t?.likes || t?.favorite_count || 0) || 0,
+      retweets: Number(t?.retweets || t?.retweet_count || 0) || 0
+    };
+  } catch (apiErr) {
+    const user = (handleForFallback || '').replace(/^@/, '');
+    if (!user) throw apiErr;
+    try {
+      const webUrl = `https://fxtwitter.com/${user}/status/${id}`;
+      const html = await getText(webUrl);
+      return parseTweetFromFxtwitterHtml(html, id, handleForFallback);
+    } catch (htmlErr) {
+      console.error(`warn: fxtwitter HTML fallback for ${id} failed: ${htmlErr.message}`);
+      throw apiErr;
+    }
+  }
 }
 
 function pickWithRatio(pool, n, targetDesign = 0.7, exclude = new Set(), maxPerHandle = 2) {
@@ -291,7 +333,7 @@ if (idsFromCamofox.length > 0) {
   }
   console.error(`info: loaded ${discovered.length} candidate ids from ${idsFileArg}`);
 } else if (discoverFallback) {
-  for (const handle of presets.bloggers || []) {
+  for (const handle of allHandles) {
     try {
       const latest = await fetchLatestByHandle(handle);
       for (const x of latest) {
@@ -311,14 +353,15 @@ const discoveredIds = [...new Set(discovered.map(x => x.id).filter(Boolean))];
 let fetchIds = discoveredIds.filter(id => !seen.has(id));
 if (fetchIds.length < 28) fetchIds = [...new Set([...fetchIds, ...discoveredIds])].slice(0, 100);
 
+const idToHandle = new Map(discovered.map(x => [x.id, x._handle]));
 const details = [];
 for (const id of fetchIds) {
   try {
-    const d = await fetchStatusDetail(id);
+    const d = await fetchStatusDetail(id, idToHandle.get(id));
     const ts = d.created_timestamp ? d.created_timestamp * 1000 : (d.posted_at ? Date.parse(d.posted_at) : NaN);
     if (!Number.isNaN(ts) && ts < cutoff) continue;
     if (!d.url.includes('/status/')) continue;
-    details.push({ ...d, _rank: 1, _source: 'fxtwitter' });
+    details.push({ ...d, _rank: 1, _source: d._source || 'fxtwitter' });
   } catch (e) {
     console.error(`warn: status ${id} detail failed: ${e.message}`);
   }
@@ -360,13 +403,7 @@ if (items.length < 12) {
 
 const used = new Set();
 const top10 = pickWithRatio(items, 10, 0.7, used);
-if (top10.length < 10) {
-  const refill = allItems.filter(i => !used.has(i._id)).slice(0, 10 - top10.length);
-  for (const i of refill) {
-    top10.push(i);
-    used.add(i._id);
-  }
-}
+const listSize = Math.min(top10.length, 10);
 
 const mergedSeen = [...new Set([...(cache.seenIds || []), ...fetchIds])].slice(-5000);
 saveCache({ seenIds: mergedSeen, updatedAt: new Date().toISOString() });
@@ -379,7 +416,7 @@ if (candidatesOnly) {
   const payload = {
     reportDate,
     generatedAt: new Date().toISOString(),
-    candidates: top10.slice(0, 10).map((i) => ({
+    candidates: top10.slice(0, listSize).map((i) => ({
       id: i._id,
       url: i.url,
       author: i.author || '',
@@ -395,9 +432,9 @@ if (candidatesOnly) {
   process.exit(0);
 }
 
-const top10Text = top10.slice(0, 10).map((x) => formatItem(x)).filter(Boolean).join('\n\n');
-const designCount = top10.filter(x => x._isDesign).length;
-const ratio = top10.length ? Math.round((designCount / top10.length) * 100) : 0;
+const top10Text = top10.slice(0, listSize).map((x) => formatItem(x)).filter(Boolean).join('\n\n');
+const designCount = top10.slice(0, listSize).filter(x => x._isDesign).length;
+const ratio = listSize ? Math.round((designCount / listSize) * 100) : 0;
 const summaryParagraph = `过去24小时AI圈整体情绪偏积极，开源项目与产品更新密集。短期内 Agent UX、Design-to-Code 与多模态设计协同仍会持续发酵；对设计/产品形态的影响集中在工作流整合与组件化交付效率上，值得持续关注。（设计相关内容占比约${ratio}%）`;
 
-console.log(`${reportDate}\n《AI设计日报》\n\n📌 TOP 10\n${top10Text || '暂无满足条件的候选'}\n\n🧭 小结与展望\n${summaryParagraph}`);
+console.log(`${reportDate}\n《AI设计日报》\n\n${top10Text || '暂无满足条件的候选'}\n\n🧭 小结与展望\n${summaryParagraph}`);
