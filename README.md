@@ -167,7 +167,7 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
 
 **发送任务（每天 10:00 工作日）**：
 
-子代理需按 SKILL.md「子代理执行指令」执行：先拉取候选数据（运行 generate_report.mjs --candidates-only），再根据 SKILL 与 prompt 用 AI 生成日报正文，写入 cache/generated-report.md，最后运行 send_to_teams.mjs --report-file cache/generated-report.md 发送。详细步骤见 SKILL.md。
+子代理需按 SKILL.md「子代理执行指令」执行：先拉取候选数据（运行 generate_report.mjs --candidates-only），再根据 SKILL 用 AI 生成日报正文，写入 cache/generated-report.md，最后运行 send_to_teams.mjs --report-file cache/generated-report.md 发送。详细步骤见 SKILL.md。若你有本地个人偏好文档，可自行提供给子代理参考。
 
 ```json
 {
@@ -175,7 +175,7 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
   "schedule": { "kind": "cron", "expr": "0 10 * * 1-5", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行AI设计日报生成并发送（完整步骤见本 skill 的 SKILL.md「子代理执行指令」）：\n\n1. 在 ai_design_daily 技能根目录运行：node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json\n2. 阅读 SKILL.md 与 prompt.md（若有），根据 cache/candidates.json 中的 candidates 用 AI 生成日报：列表 1～10 条（候选几条出几条），每条新闻式标题+100-140字中文摘要+链接，小结一段话；不展示 TOP 10/当日精选；全部中文、无英文残留、禁止模板腔与省略号结尾\n3. 将生成的日报按 SKILL 中约定的 Markdown 格式写入 cache/generated-report.md\n4. 运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送到 Teams",
+    "message": "执行AI设计日报生成并发送（完整步骤见本 skill 的 SKILL.md「子代理执行指令」）：\n\n1. 在 ai_design_daily 技能根目录运行：node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json\n2. 阅读 SKILL.md，根据 cache/candidates.json 中的 candidates 用 AI 生成日报：列表 1～10 条（候选几条出几条），每条新闻式标题+100-140字中文摘要+链接，小结一段话；不展示 TOP 10/当日精选；全部中文、无英文残留、禁止模板腔与省略号结尾\n3. 将生成的日报按 SKILL 中约定的 Markdown 格式写入 cache/generated-report.md\n4. 运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送到 Teams",
     "timeoutSeconds": 600
   }
 }
