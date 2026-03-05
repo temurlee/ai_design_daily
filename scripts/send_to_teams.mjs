@@ -226,7 +226,7 @@ function buildCard(dateLine, data) {
       { type: 'TextBlock', text: dateLine, isSubtle: true, spacing: 'None', wrap: true },
       { type: 'TextBlock', text: 'AI设计日报Beta（TAI-IPX x 🦞）', size: 'Large', weight: 'Bolder', wrap: true },
       { type: 'TextBlock', text: '追踪过去24小时AI前沿热点事件', isSubtle: true, spacing: 'None', wrap: true },
-      { type: 'TextBlock', separator: true, spacing: 'Large', wrap: true },
+      { type: 'TextBlock', separator: true, spacing: 'Medium' },
       ...data.top10.flatMap((x) => itemBlocks(x)),
       sectionHeader('🧭', '小结与展望'),
       { type: 'TextBlock', text: data.summary.paragraph, wrap: true, spacing: 'Medium' }
