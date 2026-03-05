@@ -1,0 +1,17 @@
+{
+  "name": "ai-design-daily",
+  "version": "0.2.0",
+  "description": "AI design daily report generator — collect X/Twitter posts, generate report, send to Teams",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "collect": "node scripts/collect_ids_camofox.mjs",
+    "generate": "node scripts/generate_report.mjs",
+    "send": "node scripts/send_to_teams.mjs",
+    "test-card": "node scripts/test_card.mjs --dry-run"
+  },
+  "private": true,
+  "license": "MIT"
+}

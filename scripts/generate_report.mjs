@@ -1,34 +1,67 @@
 #!/usr/bin/env node
+/**
+ * generate_report.mjs — Three-tier data strategy:
+ *
+ *   Tier 1  Camofox  (items in ids-file that already have snippet/text)
+ *   Tier 2  fxtwitter (api.fxtwitter.com/status/:id — free, no auth)
+ *   Tier 3  xAI Grok (chat completion with search — paid, needs API key)
+ *
+ * Items from higher tiers are preferred; lower tiers only fill in gaps.
+ */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { parseCliArgs, resolveXaiApiKey, xaiSearchTweets } from './lib/shared.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const baseDir = dirname(__dirname);
 const presets = JSON.parse(readFileSync(join(baseDir, 'references', 'query-presets.json'), 'utf8'));
-const args = process.argv.slice(2);
+const cli = parseCliArgs();
 
-function arg(name, fallback) {
-  const i = args.indexOf(name);
-  return i >= 0 && i + 1 < args.length ? args[i + 1] : fallback;
-}
-
-const hours = Number(arg('--hours', '24'));
-const dateArg = arg('--date', null);
-const cachePathArg = arg('--cache', 'cache/fxtwitter-state.json');
-const idsFileArg = arg('--ids-file', 'cache/camofox-latest-ids.json');
+const hours = Number(cli.get('--hours', '24'));
+const dateArg = cli.get('--date', null);
+const cachePathArg = cli.get('--cache', 'cache/fxtwitter-state.json');
+const idsFileArg = cli.get('--ids-file', 'cache/camofox-latest-ids.json');
 const cachePath = join(baseDir, cachePathArg);
 const idsFilePath = join(baseDir, idsFileArg);
-const discoverFallback = args.includes('--discover-fallback');
+const discoverFallback = cli.has('--discover-fallback');
+const noFxtwitter = cli.has('--no-fxtwitter');
+const noXai = cli.has('--no-xai');
 const now = new Date();
 const reportDate = dateArg || `${now.getUTCFullYear()}年${String(now.getUTCMonth() + 1).padStart(2, '0')}月${String(now.getUTCDate()).padStart(2, '0')}日`;
 const cutoff = Date.now() - hours * 3600 * 1000;
 
+// ── Concurrency / retry config ──────────────────────────────────
+const CONCURRENCY = 5;
+const RETRY_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 1000;
+const BATCH_COOLDOWN_MS = 300;
+
+// ── Topic dedup config ──────────────────────────────────────────
+const TOPIC_SIMILARITY_THRESHOLD = 0.35;
+
+// ── Lexicons & account sets ─────────────────────────────────────
+
 const productAccounts = new Set(['@diabrowser', '@comet', '@cursor_ai', '@tomkrcha', '@figma']);
 const bloggerAccounts = new Set((presets.bloggers || []).map(x => String(x).toLowerCase()));
-const designLexicon = ['ui', 'ux', 'figma', 'design', '交互', '界面', '设计', 'workflow', 'agent ux', 'agentic', 'token', 'component', 'prototype', 'canvas', 'design system', 'a2ui', 'genui', 'svg', 'mcp', 'multimodal', 'generative ui', 'design-to-code'];
-const insightLexicon = ['why', 'because', 'tradeoff', 'heuristic', 'workflow', '实践', '方法', '框架', '拆解', '原理', '对比', '成本', '风险', '效率', '可用性', '一致性', '心智负担'];
-const aiLexicon = ['ai', '人工智能', 'llm', '大模型', 'grok', 'chatgpt', 'claude', 'gemini', 'openai', 'anthropic', 'xai', 'agent', 'copilot', '模型', '推理'];
+const officialAccounts = new Set((presets.official || []).map(x => String(x).toLowerCase()));
+const allTrackedHandles = [...(presets.bloggers || []), ...(presets.official || [])];
+
+const designLexicon = [
+  'ui', 'ux', 'figma', 'design', '交互', '界面', '设计', 'workflow', 'agent ux',
+  'agentic', 'token', 'component', 'prototype', 'canvas', 'design system',
+  'a2ui', 'genui', 'svg', 'mcp', 'multimodal', 'generative ui', 'design-to-code'
+];
+const insightLexicon = [
+  'why', 'because', 'tradeoff', 'heuristic', 'workflow', '实践', '方法', '框架',
+  '拆解', '原理', '对比', '成本', '风险', '效率', '可用性', '一致性', '心智负担'
+];
+const aiLexicon = [
+  'ai', '人工智能', 'llm', '大模型', 'grok', 'chatgpt', 'claude', 'gemini',
+  'openai', 'anthropic', 'xai', 'agent', 'copilot', '模型', '推理'
+];
+
+// ── Helpers ─────────────────────────────────────────────────────
 
 function statusId(url = '') {
   const m = url.match(/\/status\/(\d+)/);
@@ -59,7 +92,7 @@ function isAiRelated(item) {
 
 function isTrackedAuthor(item) {
   const h = handleOf(item);
-  return productAccounts.has(h) || bloggerAccounts.has(h);
+  return productAccounts.has(h) || bloggerAccounts.has(h) || officialAccounts.has(h);
 }
 
 function isPersonalNoise(item) {
@@ -71,6 +104,8 @@ function isDesign(item) {
   const t = `${item.title || ''} ${item.snippet || ''}`.toLowerCase();
   return designLexicon.some(k => t.includes(k));
 }
+
+// ── Scoring ─────────────────────────────────────────────────────
 
 function insightScore(item) {
   const t = `${item.title || ''} ${item.snippet || ''}`.toLowerCase();
@@ -88,117 +123,108 @@ function engagementScore(item) {
   return Math.min(60, Math.floor(f / 80) + Math.floor(r / 30));
 }
 
-function score(item, rank, hitCount) {
+function score(item) {
   let s = 0;
-  s += Math.max(0, 32 - rank);
-  s += (hitCount - 1) * 10;
   s += isDesign(item) ? 24 : 0;
   s += insightScore(item);
   s += engagementScore(item);
   if (productAccounts.has(handleOf(item))) s += 12;
+  if (officialAccounts.has(handleOf(item))) s += 8;
   return s;
 }
 
-function whyCare(item) {
-  const text = `${item.title || ''} ${item.snippet || ''}`.toLowerCase();
-  if (/figma|prototype|prototyp|原型/.test(text)) return '并将直接影响原型评审效率与交互决策速度';
-  if (/agent|workflow|automation|自动化/.test(text)) return '并会改变设计师在AI工作流中的分工边界与交付效率';
-  if (/code|design\-to\-code|component|token/.test(text)) return '并关系到设计系统与工程实现之间的一致性成本';
-  if (/multimodal|视觉|image|video|svg/.test(text)) return '并正在拓宽视觉表达与多模态交互的设计边界';
-  return '并可用于判断该趋势是否值得进入团队的产品设计路线图';
+// ── Topic-level dedup (bigram Jaccard) ──────────────────────────
+
+function bigrams(text) {
+  const t = (text || '').replace(/[\s\n\r]+/g, '').toLowerCase();
+  const set = new Set();
+  for (let i = 0; i < t.length - 1; i++) set.add(t.slice(i, i + 2));
+  return set;
 }
 
-function detectEntity(item) {
-  const h = handleOf(item);
-  const map = {
-    '@figma': 'Figma',
-    '@openclaw': 'OpenClaw',
-    '@cursor_ai': 'Cursor',
-    '@diabrowser': 'Dia Browser',
-    '@comet': 'Comet',
-    '@tomkrcha': 'Tom Krcha'
-  };
-  return map[h] || (h ? h.replace('@', '') : 'AI生态');
+function topicSimilarity(a, b) {
+  const textA = `${a.title || ''} ${a.snippet || ''}`;
+  const textB = `${b.title || ''} ${b.snippet || ''}`;
+  const ba = bigrams(textA);
+  const bb = bigrams(textB);
+  if (ba.size === 0 || bb.size === 0) return 0;
+  let intersection = 0;
+  for (const bg of ba) if (bb.has(bg)) intersection++;
+  return intersection / Math.min(ba.size, bb.size);
 }
 
-function detectAction(item) {
-  const t = cleanText(item.snippet || item.title || '').toLowerCase();
-  if (/发布|上线|launch|release|ship|更新|update|推出/.test(t)) return '发布更新';
-  if (/开源|open source|github/.test(t)) return '开源推进';
-  if (/演示|demo|展示|实测/.test(t)) return '演示验证';
-  if (/融资|收购|合作|sponsor|partnership/.test(t)) return '生态合作';
-  return '趋势信号';
+function deduplicateByTopic(items, threshold = TOPIC_SIMILARITY_THRESHOLD) {
+  const kept = [];
+  for (const item of items) {
+    const isDuplicate = kept.some(k => topicSimilarity(k, item) > threshold);
+    if (!isDuplicate) kept.push(item);
+  }
+  return kept;
 }
 
-function detectPositioning(item) {
-  if (isDesign(item)) return '面向AI设计工作流与UI/UX协同升级';
-  return '反映AI产品能力与产业节奏变化';
-}
+// ── Direct-path formatters (DEPRECATED — use --candidates-only + AI) ──
 
-function buildSummary(item, max = 140) {
+function buildSummary_DEPRECATED(item, max = 140) {
   const base = cleanText(item.snippet || '').replace(/^RT\s+/i, '');
   const sentences = base.split(/[。！？!?\n]/).map(x => x.trim()).filter(Boolean);
   let lead = '';
   if (sentences.length >= 2) lead = `${sentences[0]}。${sentences[1]}。`;
   else lead = base;
   lead = lead.replace(/\s+/g, ' ').trim();
-  let s = `${lead}${whyCare(item)}。`;
-  if (s.length < 100) s += '对团队近期的产品设计与协作取舍有直接参考价值。';
-  if (s.length > max) s = s.slice(0, max - 1) + '…';
+  let s = lead;
+  if (s.length < 100) s += '。该动态值得关注。';
+  if (s.length > max) s = s.slice(0, max - 1) + '。';
   return s;
 }
 
-function parseTitle(item) {
-  return `${detectEntity(item)}${detectAction(item)}，${detectPositioning(item)}`;
+function parseTitle_DEPRECATED(item) {
+  const h = handleOf(item);
+  const entity = h ? h.replace('@', '') : 'AI生态';
+  return `${entity} 发布动态`;
 }
 
-function formatItem(i) {
-  const summary = buildSummary(i);
+function formatItem_DEPRECATED(i) {
+  const summary = buildSummary_DEPRECATED(i);
   if (!summary) return '';
-  return `${parseTitle(i)}\n> ${summary}\n>\n> *链接：${i.url}*`;
+  return `${parseTitle_DEPRECATED(i)}\n${summary}\n👉 [点击查看](${i.url})`;
 }
 
-function formatVoiceItem(i, idx) {
-  const entity = detectEntity(i);
-  const action = detectAction(i);
-  const summary = buildSummary(i);
-  if (!summary) return '';
-  const title = `${entity}${action}持续输出，形成当日高价值观点信号`;
-  return `${idx + 1}. ${title}\n> ${summary}\n>\n> *链接：${i.url}*`;
-}
-
-function loadCache() {
-  try {
-    if (!existsSync(cachePath)) return { seenIds: [], updatedAt: null };
-    return JSON.parse(readFileSync(cachePath, 'utf8'));
-  } catch {
-    return { seenIds: [], updatedAt: null };
-  }
-}
-
-function saveCache(cache) {
-  mkdirSync(dirname(cachePath), { recursive: true });
-  writeFileSync(cachePath, JSON.stringify(cache, null, 2), 'utf8');
-}
-
-function loadIdsFile() {
-  try {
-    if (!existsSync(idsFilePath)) return [];
-    const data = JSON.parse(readFileSync(idsFilePath, 'utf8'));
-    const items = Array.isArray(data) ? data : (data.items || []);
-    return items
-      .map(x => ({ id: String(x.id || statusId(x.url || '') || ''), url: x.url || '', created_timestamp: Number(x.created_timestamp || x.ts || 0) || null, handle: x.handle || '' }))
-      .filter(x => x.id);
-  } catch {
-    return [];
-  }
-}
+// ── Network helpers ─────────────────────────────────────────────
 
 async function getJson(url) {
   const res = await fetch(url, { headers: { accept: 'application/json' } });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }
+
+async function fetchWithRetry(fn, retries = RETRY_ATTEMPTS, delay = RETRY_DELAY_MS) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i === retries) throw e;
+      await new Promise(r => setTimeout(r, delay * (i + 1)));
+    }
+  }
+}
+
+async function fetchPool(ids, fetcher, concurrency = CONCURRENCY) {
+  const results = [];
+  for (let i = 0; i < ids.length; i += concurrency) {
+    const batch = ids.slice(i, i + concurrency);
+    const settled = await Promise.allSettled(
+      batch.map(id => fetchWithRetry(() => fetcher(id)))
+    );
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value) results.push(r.value);
+      else if (r.status === 'rejected') console.error(`warn: ${r.reason?.message || r.reason}`);
+    }
+    if (i + concurrency < ids.length) await new Promise(r => setTimeout(r, BATCH_COOLDOWN_MS));
+  }
+  return results;
+}
+
+// ── Tier 2: fxtwitter ───────────────────────────────────────────
 
 function extractPossibleStatuses(node, acc = []) {
   if (!node) return acc;
@@ -213,7 +239,9 @@ function extractPossibleStatuses(node, acc = []) {
   const text = node.text || node.full_text || node.content || '';
   const ts = Number(node.created_timestamp || node.timestamp || 0);
 
-  if (id && (url.includes('/status/') || /^\d+$/.test(id))) acc.push({ id, url: url || `https://x.com/i/status/${id}`, text, created_timestamp: ts || null });
+  if (id && (url.includes('/status/') || /^\d+$/.test(id))) {
+    acc.push({ id, url: url || `https://x.com/i/status/${id}`, text, created_timestamp: ts || null });
+  }
   for (const v of Object.values(node)) extractPossibleStatuses(v, acc);
   return acc;
 }
@@ -244,39 +272,74 @@ async function fetchStatusDetail(id) {
   };
 }
 
+// ── Selection ───────────────────────────────────────────────────
+
 function pickWithRatio(pool, n, targetDesign = 0.7, exclude = new Set(), maxPerHandle = 2) {
   const out = [];
   const designNeed = Math.round(n * targetDesign);
   const handleCount = new Map();
   let d = 0;
+
   for (const i of pool) {
     if (exclude.has(i._id) || out.length >= n) continue;
     const h = handleOf(i) || '@unknown';
     if ((handleCount.get(h) || 0) >= maxPerHandle) continue;
     if (i._isDesign && d < designNeed) {
-      out.push(i); exclude.add(i._id); d++; handleCount.set(h, (handleCount.get(h) || 0) + 1);
+      out.push(i); exclude.add(i._id); d++;
+      handleCount.set(h, (handleCount.get(h) || 0) + 1);
     }
   }
+
   for (const i of pool) {
     if (exclude.has(i._id) || out.length >= n) continue;
     const h = handleOf(i) || '@unknown';
     if ((handleCount.get(h) || 0) >= maxPerHandle) continue;
-    out.push(i); exclude.add(i._id); handleCount.set(h, (handleCount.get(h) || 0) + 1);
+    out.push(i); exclude.add(i._id);
+    handleCount.set(h, (handleCount.get(h) || 0) + 1);
   }
+
   return out;
 }
 
-function pickVoices(pool, n = 4) {
-  const byHandle = new Map();
-  for (const i of pool) {
-    const h = handleOf(i);
-    if (!h) continue;
-    if (!byHandle.has(h) || (i._insight > byHandle.get(h)._insight)) byHandle.set(h, i);
+// ── Cache ───────────────────────────────────────────────────────
+
+function loadCache() {
+  try {
+    if (!existsSync(cachePath)) return { seenIds: [], updatedAt: null };
+    return JSON.parse(readFileSync(cachePath, 'utf8'));
+  } catch {
+    return { seenIds: [], updatedAt: null };
   }
-  return [...byHandle.values()]
-    .sort((a, b) => (b._insight + b._score) - (a._insight + a._score))
-    .slice(0, n);
 }
+
+function saveCache(cache) {
+  mkdirSync(dirname(cachePath), { recursive: true });
+  writeFileSync(cachePath, JSON.stringify(cache, null, 2), 'utf8');
+}
+
+function loadIdsFile() {
+  try {
+    if (!existsSync(idsFilePath)) return [];
+    const data = JSON.parse(readFileSync(idsFilePath, 'utf8'));
+    const items = Array.isArray(data) ? data : (data.items || []);
+    return items
+      .map(x => ({
+        id: String(x.id || statusId(x.url || '') || ''),
+        url: x.url || '',
+        created_timestamp: Number(x.created_timestamp || x.ts || 0) || null,
+        handle: x.handle || '',
+        snippet: x.snippet || x.text || '',
+        author: x.author || x.handle || '',
+        favorites: Number(x.favorites || 0) || 0,
+        retweets: Number(x.retweets || 0) || 0
+      }))
+      .filter(x => x.id);
+  } catch {
+    return [];
+  }
+}
+
+// ── Main ────────────────────────────────────────────────────────
 
 const cache = loadCache();
 const seen = new Set(cache.seenIds || []);
@@ -291,7 +354,7 @@ if (idsFromCamofox.length > 0) {
   }
   console.error(`info: loaded ${discovered.length} candidate ids from ${idsFileArg}`);
 } else if (discoverFallback) {
-  for (const handle of presets.bloggers || []) {
+  for (const handle of allTrackedHandles) {
     try {
       const latest = await fetchLatestByHandle(handle);
       for (const x of latest) {
@@ -307,49 +370,144 @@ if (idsFromCamofox.length > 0) {
   console.error(`info: ids file not found (${idsFileArg}). skip discovery. pass --discover-fallback to attempt fxtwitter user discovery.`);
 }
 
-const discoveredIds = [...new Set(discovered.map(x => x.id).filter(Boolean))];
-let fetchIds = discoveredIds.filter(id => !seen.has(id));
-if (fetchIds.length < 28) fetchIds = [...new Set([...fetchIds, ...discoveredIds])].slice(0, 100);
+// ── Tier 1: use Camofox content directly ────────────────────────
 
-const details = [];
-for (const id of fetchIds) {
-  try {
+const tier1Items = [];
+const needsFetch = [];
+
+for (const x of discovered) {
+  if (x.snippet && cleanText(x.snippet).length >= 20) {
+    tier1Items.push({
+      _id: x.id,
+      url: x.url,
+      title: `${x.author || x._handle || ''} ${String(x.snippet).slice(0, 120)}`.trim(),
+      snippet: x.snippet,
+      author: x.author || x._handle || '',
+      posted_at: null,
+      created_timestamp: x.created_timestamp || null,
+      favorites: x.favorites || 0,
+      retweets: x.retweets || 0,
+      _source: 'camofox'
+    });
+  } else {
+    needsFetch.push(x);
+  }
+}
+
+console.error(`info: tier-1 (camofox content): ${tier1Items.length} items ready`);
+console.error(`info: ${needsFetch.length} items need content from fxtwitter/xai`);
+
+// ── Tier 2: fxtwitter for items missing content ─────────────────
+
+const tier2Items = [];
+
+if (!noFxtwitter && needsFetch.length > 0) {
+  const fetchIds = [...new Set(needsFetch.map(x => x.id).filter(Boolean))];
+  const rawDetails = await fetchPool(fetchIds, async (id) => {
     const d = await fetchStatusDetail(id);
     const ts = d.created_timestamp ? d.created_timestamp * 1000 : (d.posted_at ? Date.parse(d.posted_at) : NaN);
-    if (!Number.isNaN(ts) && ts < cutoff) continue;
-    if (!d.url.includes('/status/')) continue;
-    details.push({ ...d, _rank: 1, _source: 'fxtwitter' });
-  } catch (e) {
-    console.error(`warn: status ${id} detail failed: ${e.message}`);
+    if (!Number.isNaN(ts) && ts < cutoff) return null;
+    if (!d.url.includes('/status/')) return null;
+    return { ...d, _source: 'fxtwitter' };
+  });
+
+  const fetched = rawDetails.filter(Boolean);
+  const fetchedIds = new Set(fetched.map(d => d._id));
+
+  tier2Items.push(...fetched);
+  console.error(`info: tier-2 (fxtwitter): ${tier2Items.length} items fetched`);
+
+  const stillMissing = needsFetch.filter(x => !fetchedIds.has(x.id));
+  needsFetch.length = 0;
+  needsFetch.push(...stillMissing);
+} else if (noFxtwitter) {
+  console.error('info: tier-2 (fxtwitter) skipped (--no-fxtwitter)');
+}
+
+// ── Tier 3: xAI Grok for remaining items ───────────────────────
+
+const tier3Items = [];
+
+if (!noXai && needsFetch.length > 0) {
+  const xaiKey = resolveXaiApiKey(baseDir);
+  if (xaiKey) {
+    const missingHandles = [...new Set(needsFetch.map(x => x._handle || x.handle).filter(Boolean))];
+    const missingIds = needsFetch.map(x => x.id).filter(Boolean);
+    try {
+      console.error(`info: tier-3 (xai): searching for ${missingIds.length} items from ${missingHandles.length} handles...`);
+      const results = await xaiSearchTweets(
+        missingHandles.length > 0 ? missingHandles : allTrackedHandles.slice(0, 10),
+        { apiKey: xaiKey, hours, targetIds: missingIds }
+      );
+
+      for (const r of results) {
+        if (!r._id && r.url) r._id = statusId(r.url);
+        if (!r._id) continue;
+        if (!r.title) r.title = `${r.author || ''} ${String(r.snippet || '').slice(0, 120)}`.trim();
+        tier3Items.push(r);
+      }
+      console.error(`info: tier-3 (xai): ${tier3Items.length} items retrieved`);
+    } catch (e) {
+      console.error(`warn: tier-3 (xai) failed: ${e.message}`);
+    }
+  } else {
+    console.error('info: tier-3 (xai) skipped — no API key (set XAI_API_KEY or create .xai-api-key)');
+  }
+} else if (noXai) {
+  console.error('info: tier-3 (xai) skipped (--no-xai)');
+}
+
+// ── Fallback: use lite items if all tiers produced nothing ──────
+
+const allDetails = [...tier1Items, ...tier2Items, ...tier3Items];
+
+if (allDetails.length === 0) {
+  for (const x of discovered.slice(0, 120)) {
+    allDetails.push({
+      _id: x.id,
+      url: x.url,
+      title: `${x._handle || ''} ${String(x.text || x.snippet || '').slice(0, 120)}`.trim(),
+      snippet: String(x.text || x.snippet || ''),
+      author: x._handle || '',
+      posted_at: null,
+      favorites: 0,
+      retweets: 0,
+      _source: 'lite-fallback'
+    });
   }
 }
 
-if (details.length === 0) {
-  for (const x of discovered.slice(0, 120)) {
-    details.push({ _id: x.id, url: x.url, title: `${x._handle || ''} ${String(x.text || '').slice(0, 120)}`.trim(), snippet: String(x.text || ''), author: x._handle || '', posted_at: null, favorites: 0, retweets: 0, _rank: 50, _source: 'fxtwitter-lite' });
-  }
-}
+// ── Merge & deduplicate ─────────────────────────────────────────
 
 const byId = new Map();
-for (const item of details) {
+for (const item of allDetails) {
   if (!item._id) continue;
-  if (!byId.has(item._id)) byId.set(item._id, { ...item, _hits: 1, _bestRank: item._rank || 50 });
-  else {
+  if (!byId.has(item._id)) {
+    byId.set(item._id, { ...item });
+  } else {
     const v = byId.get(item._id);
-    v._hits += 1;
-    v._bestRank = Math.min(v._bestRank, item._rank || 50);
     if ((item.snippet || '').length > (v.snippet || '').length) v.snippet = item.snippet;
     v.favorites = Math.max(Number(v.favorites || 0), Number(item.favorites || 0));
     v.retweets = Math.max(Number(v.retweets || 0), Number(item.retweets || 0));
+    if (!v.author && item.author) v.author = item.author;
   }
 }
+
+const sourceCounts = {};
+for (const item of byId.values()) {
+  const src = item._source || 'unknown';
+  sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+}
+console.error(`info: merged ${byId.size} unique items — sources: ${JSON.stringify(sourceCounts)}`);
+
+// ── Score & filter ──────────────────────────────────────────────
 
 const allItems = [...byId.values()]
   .filter(hasRealText)
   .map(i => {
     const _isDesign = isDesign(i);
     const _insight = insightScore(i);
-    return { ...i, _isDesign, _insight, _score: score(i, i._bestRank, i._hits) };
+    return { ...i, _isDesign, _insight, _score: score(i) };
   })
   .sort((a, b) => b._score - a._score);
 
@@ -357,6 +515,8 @@ let items = allItems.filter(i => !isPersonalNoise(i) && (isAiRelated(i) || i._is
 if (items.length < 12) {
   items = allItems.filter(i => !isPersonalNoise(i) && (isAiRelated(i) || i._isDesign || isTrackedAuthor(i))).slice(0, 20);
 }
+
+items = deduplicateByTopic(items);
 
 const used = new Set();
 const top10 = pickWithRatio(items, 10, 0.7, used);
@@ -368,17 +528,21 @@ if (top10.length < 10) {
   }
 }
 
-const mergedSeen = [...new Set([...(cache.seenIds || []), ...fetchIds])].slice(-5000);
+const allFetchedIds = [...byId.keys()];
+const mergedSeen = [...new Set([...(cache.seenIds || []), ...allFetchedIds])].slice(-5000);
 saveCache({ seenIds: mergedSeen, updatedAt: new Date().toISOString() });
 
-const candidatesOnly = args.includes('--candidates-only');
+// ── Output ──────────────────────────────────────────────────────
+
+const candidatesOnly = cli.has('--candidates-only');
 if (candidatesOnly) {
-  const outArg = arg('--output', 'cache/candidates.json');
+  const outArg = cli.get('--output', 'cache/candidates.json');
   const outPath = join(baseDir, outArg);
   mkdirSync(dirname(outPath), { recursive: true });
   const payload = {
     reportDate,
     generatedAt: new Date().toISOString(),
+    sourceSummary: sourceCounts,
     candidates: top10.slice(0, 10).map((i) => ({
       id: i._id,
       url: i.url,
@@ -387,7 +551,8 @@ if (candidatesOnly) {
       title: i.title || '',
       isDesign: !!i._isDesign,
       favorites: i.favorites || 0,
-      retweets: i.retweets || 0
+      retweets: i.retweets || 0,
+      source: i._source || ''
     }))
   };
   writeFileSync(outPath, JSON.stringify(payload, null, 2), 'utf8');
@@ -395,7 +560,10 @@ if (candidatesOnly) {
   process.exit(0);
 }
 
-const top10Text = top10.slice(0, 10).map((x) => formatItem(x)).filter(Boolean).join('\n\n');
+// Direct-path Markdown output (DEPRECATED — prefer --candidates-only + AI generation)
+console.error('warn: direct Markdown output is deprecated. Use --candidates-only and let AI generate the report per SKILL.md.');
+
+const top10Text = top10.slice(0, 10).map(formatItem_DEPRECATED).filter(Boolean).join('\n\n');
 const designCount = top10.filter(x => x._isDesign).length;
 const ratio = top10.length ? Math.round((designCount / top10.length) * 100) : 0;
 const summaryParagraph = `过去24小时AI圈整体情绪偏积极，开源项目与产品更新密集。短期内 Agent UX、Design-to-Code 与多模态设计协同仍会持续发酵；对设计/产品形态的影响集中在工作流整合与组件化交付效率上，值得持续关注。（设计相关内容占比约${ratio}%）`;

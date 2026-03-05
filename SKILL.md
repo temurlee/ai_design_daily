@@ -1,6 +1,6 @@
 ---
 name: ai-design-daily
-description: Generate a Chinese AI design daily report from real X/Twitter posts in the last 24 hours. Use when user asks for AI日报/设计日报/AI自媒体日报. Output: TOP 10 (10 items) + 小结与展望 (one paragraph). Design-focused ~70%. Prefer Camofox-based collection (cost-saving), with grok-search as optional fallback.
+description: Generate a Chinese AI design daily report from real X/Twitter posts in the last 24 hours. Use when user asks for AI日报/设计日报/AI自媒体日报. Output: TOP 10 (10 items) + 小结与展望 (one paragraph). Design-focused ~70%. Three-tier data strategy: Camofox (primary, cost-saving) → fxtwitter (secondary, fill gaps) → xAI Grok (tertiary, paid fallback).
 ---
 
 # AI设计日报 Skill
@@ -29,17 +29,28 @@ node scripts/generate_report.mjs --hours 24
 ```
 
 ### 增量详情拉取（推荐）
-先由 Camofox 采集候选 status URL/ID：
-1. 将 URL（每行一条）写入 `cache/camofox-urls.txt`，或写成 JSON 行（含 `url`、可选 `created_timestamp`）
+先由 Camofox 采集候选 status URL/ID（建议同时采集推文正文）：
+1. 将 URL（每行一条）或 JSON 行写入 `cache/camofox-urls.txt`
+   - 纯 URL：`https://x.com/user/status/123456`
+   - 富 JSON（推荐）：`{"url":"...","text":"推文正文","author":"@handle","created_timestamp":1234567890,"favorites":10,"retweets":3}`
 2. 运行转换脚本生成增量 id 文件：
 ```bash
 node scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48
 ```
-3. 生成日报：
+3. 生成日报（三级数据源自动运作）：
 ```bash
 node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json
 ```
-说明：增量详情会通过 `api.fxtwitter.com/status/:id` 获取。
+
+**三级数据源策略**（`generate_report.mjs` 内部自动执行）：
+| 优先级 | 数据源 | 条件 | 说明 |
+|--------|--------|------|------|
+| Tier 1 | **Camofox** | ids-file 中已有 snippet/text | 直接使用，零额外请求 |
+| Tier 2 | **fxtwitter** | Tier 1 缺内容的条目 | `api.fxtwitter.com/status/:id`，免费无认证 |
+| Tier 3 | **xAI Grok** | Tier 2 仍失败的条目 | xAI chat completion + search，需 API key |
+
+可通过 `--no-fxtwitter` 或 `--no-xai` 跳过对应层级。
+xAI API key 配置：`XAI_API_KEY` 环境变量或项目根目录 `.xai-api-key` 文件。
 如需无 ids 文件时强制尝试 fxtwitter 用户发现，可加 `--discover-fallback`（不推荐，稳定性取决于环境）。
 
 ### OpenClaw 下由 AI 生成日报再发送（推荐）
@@ -55,10 +66,14 @@ node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.
 ```
 ai_design_daily/
 ├── SKILL.md              # 本文档
+├── package.json          # 工程元信息 & npm scripts
 ├── scripts/
+│   ├── lib/
+│   │   └── shared.mjs    # 共享工具（CLI 解析、Card 构建、Webhook 封装）
 │   ├── send_to_teams.mjs # 完整发送脚本
 │   ├── test_card.mjs     # 快速测试脚本
-│   └── generate_report.mjs # Markdown 生成
+│   ├── generate_report.mjs # 候选生成 / Markdown 生成
+│   └── collect_ids_camofox.mjs # URL → ID 转换
 └── references/
     └── query-presets.json # bloggers 列表
 ```
@@ -103,8 +118,7 @@ AI设计日报Beta（TAI-IPX x 🦞）
 ## 不可退化规则（硬性）
 
 ### 1) 数据与采集
-- 主通道：Camofox 增量采集
-- 详情拉取：`api.fxtwitter.com/status/:id`
+- 三级策略：Camofox 优先 → fxtwitter 补全 → xAI Grok 兜底
 - 禁止在无说明情况下切回“纯摘要截断”模式
 - **必须完整遍历** `references/query-presets.json` 中 `bloggers` 与 `official` 的每一个账号，不得跳过；某账号失败则记录后继续，最后汇报成功/失败列表。
 
@@ -219,21 +233,42 @@ Tabbit 发布：光年之外团队推出 AI 浏览器
 
 ---
 
-## 内容来源
+## 内容来源（三级策略）
 
-- **主通道（默认）**: Camofox（低成本）
-  - **必须完整遍历** `references/query-presets.json` 中 `bloggers` 与 `official` 列表的每一个账号，按列表顺序逐个访问，不得跳过；若某账号访问失败，记录该账号及原因后继续下一个，最后汇总成功/失败列表
-  - 建议每账号抓取 30-50 条，时间窗口默认过去 24 小时
-  - 做增量去重（按 tweet/status id）
-- **兜底通道（可选）**: grok-search
-  - 仅在关键账号抓取失败或需要补盲时启用
-  - 查询格式：`from:@handle1 OR from:@handle2 OR ...`
+```
+Tier 1: Camofox ──────► 已有内容的直接用（零成本）
+                 │
+                 ▼ 缺内容的
+Tier 2: fxtwitter ────► api.fxtwitter.com/status/:id（免费、无认证）
+                 │
+                 ▼ 仍失败的
+Tier 3: xAI Grok ────► chat completion + X search（付费、需 API key）
+```
+
+### Tier 1: Camofox（主通道，默认）
+- **必须完整遍历** `references/query-presets.json` 中 `bloggers` 与 `official` 列表的每一个账号
+- 按列表顺序逐个访问，不得跳过；若某账号访问失败，记录该账号及原因后继续下一个，最后汇总成功/失败列表
+- **建议采集时同时拿推文正文**（写入 JSON 行的 `text` 字段），减少 fxtwitter 请求
+- 建议每账号抓取 30-50 条，时间窗口默认过去 24 小时
+- 做增量去重（按 tweet/status id）
+
+### Tier 2: fxtwitter（补全通道）
+- 对 Tier 1 未拿到内容（`snippet` 为空）的条目，自动调用 `api.fxtwitter.com/status/:id`
+- 免费、无需认证；5 路并发 + 自动重试
+- 可通过 `--no-fxtwitter` 跳过
+
+### Tier 3: xAI Grok（兜底通道）
+- 对 Tier 2 仍失败的条目，通过 xAI API（`grok-3-mini` + search）批量检索
+- 需配置 API key：`XAI_API_KEY` 环境变量或 `.xai-api-key` 文件
+- 可通过 `--no-xai` 跳过
+
+### 通用规则
 - **设计占比**: 70%（通过 designLexicon 判断）
 - **时间窗口**: 默认过去 24 小时
 
 ### 建议策略（省成本）
 
-默认使用 Camofox 采集、不启用 grok 兜底；对失败账号记录日志不阻塞整份日报，持久化已处理 status id 做增量抓取。
+Camofox 采集时尽量拿正文，这样大部分条目走 Tier 1 零成本；fxtwitter 作为安全网补全漏网之鱼；xAI 仅在极端情况下启用。对失败账号记录日志不阻塞整份日报，持久化已处理 status id 做增量抓取。
 
 ---
 
@@ -242,11 +277,11 @@ Tabbit 发布：光年之外团队推出 AI 浏览器
 ### Cron 定时任务（高质量日报自动发送）
 
 **约束（强制）**：
-- **每次触发发送任务 = 全链路重跑**：不得复用前一日或更早的 `cache/camofox-urls.txt`、`cache/camofox-latest-ids.json`、`cache/fxtwitter-state.json` 直接出日报；必须从「采集 → 生成 ID → fxtwitter 拉取详情 → AI 写稿 → `--report-file` 发送」全链路重新执行一遍。
+- **每次触发发送任务 = 全链路重跑**：不得复用前一日或更早的 `cache/camofox-urls.txt`、`cache/camofox-latest-ids.json`、`cache/fxtwitter-state.json` 直接出日报；必须从「采集 → 生成 ID → 三级补全（Camofox→fxtwitter→xAI）→ AI 写稿 → `--report-file` 发送」全链路重新执行一遍。
 - **采集内容必须完整覆盖来源**：一次采集任务必须尝试访问 `query-presets.json` 中 `bloggers` 与 `official` 的**每一个账号**（逐个访问 profile，不得跳过）；若某账号失败则记录 handle 与原因并继续，最终在汇报中给出「成功/失败账号列表」，在未尝试完整账号列表前不得宣称采集完成。
 
 **采集任务（每天 9:30，仅采集不发送）**：
-- 子代理读取 `references/query-presets.json`，**完整遍历**其中 `bloggers` 与 `official` 的每一个账号，使用 Camofox 逐个访问其 Twitter 个人页，滚动采集最近 24 小时内推文 URL，写入 `cache/camofox-urls.txt`，再运行 `collect_ids_camofox.mjs` 生成 `cache/camofox-latest-ids.json`
+- 子代理读取 `references/query-presets.json`，**完整遍历**其中 `bloggers` 与 `official` 的每一个账号，使用 Camofox 逐个访问其 Twitter 个人页，滚动采集最近 24 小时内推文 URL 及正文（建议写成富 JSON 行：`{"url":"...","text":"...","author":"@handle","created_timestamp":...}`），写入 `cache/camofox-urls.txt`，再运行 `collect_ids_camofox.mjs` 生成 `cache/camofox-latest-ids.json`
 - **不得跳过任一账号**；失败则记录后继续，最后汇报采集结果（成功/失败账号列表）
 - 本任务**不执行**生成日报或发送
 
@@ -308,15 +343,17 @@ Cron 触发子代理 → 子代理：拉取候选 → 用 AI 按 SKILL 生成日
 
 - ⚠️ Webhook URL 含签名，需定期轮换
 - 🔐 支持多个 webhook：在 `.teams-webhook` 文件中每行放一个 URL，会依次发送到所有地址
-- 🚫 勿将 URL 提交到代码仓库
+- 🔑 xAI API key：`XAI_API_KEY` 环境变量或 `.xai-api-key` 文件
+- 🚫 勿将 URL 或 API key 提交到代码仓库
 
 ---
 
 ## 待优化
 
 - [ ] webhook URL 轮换机制
-- [ ] 错误重试机制
+- [x] 错误重试机制（已实现：fxtwitter 指数退避重试 + 并发池）
+- [x] 三级数据源（Camofox → fxtwitter → xAI）
 
 ---
 
-最后更新: 2026-03-04
+最后更新: 2026-03-05

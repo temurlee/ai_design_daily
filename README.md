@@ -55,10 +55,10 @@
 
 ```
 1. 采集阶段（9:30）
-   ┌──────────┐    ┌──────────────┐    ┌─────────────────┐
-   │ bloggers │───►│ Camofox 访问  │───►│ 推文 URL 列表    │
-   │ 列表     │    │ Twitter 账号  │    │ camofox-urls.txt│
-   └──────────┘    └──────────────┘    └────────┬────────┘
+   ┌──────────┐    ┌──────────────┐    ┌──────────────────────┐
+   │ bloggers │───►│ Camofox 访问  │───►│ 推文 URL + 正文列表  │
+   │ 列表     │    │ Twitter 账号  │    │ camofox-urls.txt     │
+   └──────────┘    └──────────────┘    └──────────┬───────────┘
                                                │
                                                ▼
                                       ┌─────────────────┐
@@ -72,18 +72,24 @@
                                       │ latest-ids.json │
                                       └─────────────────┘
 
-2. 生成发送阶段（10:00）
-   ┌─────────────────┐    ┌──────────────┐    ┌─────────────┐
-   │ latest-ids.json │───►│ fxtwitter API│───►│ 推文详情     │
-   └─────────────────┘    │ 获取内容     │    │ (text, etc) │
-                          └──────────────┘    └──────┬──────┘
-                                                     │
-                                                     ▼
-                          ┌──────────────────────────────────┐
-                          │         AI 生成日报              │
-                          │  • TOP 10（10 条）               │
-                          │  • 小结与展望（一段话）           │
-                          └──────────────┬───────────────────┘
+2. 生成发送阶段（10:00）— 三级数据源
+   ┌─────────────────┐
+   │ latest-ids.json │
+   └────────┬────────┘
+            │
+            ▼
+   ┌──────────────────────────────────────────┐
+   │  Tier 1: Camofox 内容（已有 text 直接用）│
+   │  Tier 2: fxtwitter API（补全缺内容的）   │
+   │  Tier 3: xAI Grok（兜底仍失败的）       │
+   └────────────────────┬─────────────────────┘
+                        │
+                        ▼
+   ┌──────────────────────────────────┐
+   │         AI 生成日报              │
+   │  • TOP 10（10 条）               │
+   │  • 小结与展望（一段话）           │
+   └──────────────┬───────────────────┘
                                          │
                                          ▼
                           ┌──────────────────────────────────┐
@@ -103,8 +109,8 @@
 |---------|------|
 | 分离采集和生成 | 采集确定性高，AI 生成可控性强，便于独立调试 |
 | 使用子代理执行 | 隔离环境，避免主会话上下文污染，超时可重试 |
+| 三级数据源 | Camofox 优先（零成本）→ fxtwitter 补全（免费）→ xAI 兜底（付费） |
 | Camofox 而非 API | X/Twitter API 限制多，Camofox 可访问任意公开内容 |
-| fxtwitter API | 免费获取推文详情，无需认证，稳定可靠 |
 | Adaptive Card | Teams 原生支持，渲染美观，支持 Markdown 链接 |
 
 ### 质量控制
@@ -187,8 +193,11 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
 ai_design_daily/
 ├── SKILL.md                    # 核心文档：指令、模板、规范
 ├── README.md                   # 本文件
+├── package.json                # 工程元信息 & npm scripts
 ├── .gitignore
 ├── scripts/
+│   ├── lib/
+│   │   └── shared.mjs          # 共享工具：CLI 解析、Card 构建、Webhook 封装
 │   ├── collect_ids_camofox.mjs # URL 转 ID 脚本
 │   ├── send_to_teams.mjs       # 发送到 Teams 脚本
 │   ├── generate_report.mjs     # 生成报告脚本
@@ -198,8 +207,8 @@ ai_design_daily/
 ├── cache/                      # 运行时缓存（不提交）
 │   ├── camofox-urls.txt
 │   ├── camofox-latest-ids.json
-│   ├── candidates.json        # 候选推文（--candidates-only 生成，供 AI 写日报）
-│   └── generated-report.md   # AI 生成的日报正文（子代理写入，--report-file 发送）
+│   ├── candidates.json         # 候选推文（--candidates-only 生成，供 AI 写日报）
+│   └── generated-report.md     # AI 生成的日报正文（子代理写入，--report-file 发送）
 └── .teams-webhook              # Webhook URL（不提交）
 ```
 
@@ -233,7 +242,7 @@ ai_design_daily/
   - 不复用旧 `cache/camofox-urls.txt`
   - 不复用旧 `cache/camofox-latest-ids.json`
   - 不复用旧 `cache/fxtwitter-state.json`
-  - 从采集 → 生成 ID → AI 写稿 → `--report-file` 发送全链路重跑
+  - 从采集 → 生成 ID → 三级补全（Camofox→fxtwitter→xAI）→ AI 写稿 → `--report-file` 发送全链路重跑
 - **采集完整性约束**：一次采集任务必须完整覆盖来源——已尝试访问 `bloggers` 与 `official` 的每一个账号（不得跳过），并在汇报中给出成功/失败账号列表后，方可进入发送阶段。
 - 发送阶段必须显式使用：
 

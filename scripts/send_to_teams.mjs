@@ -3,24 +3,28 @@ import { execFile } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync, existsSync } from 'fs';
+import {
+  parseCliArgs,
+  buildCard,
+  wrapCardForTeams,
+  resolveWebhookUrls
+} from './lib/shared.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const args = process.argv.slice(2);
+const baseDir = dirname(__dirname);
+const cli = parseCliArgs();
 
-function arg(name, fallback) {
-  const i = args.indexOf(name);
-  return i >= 0 && i + 1 < args.length ? args[i + 1] : fallback;
-}
+const hours = Number(cli.get('--hours', '24'));
+const dateArg = cli.get('--date', null);
+const reportFileArg = cli.get('--report-file', '');
+const dryRun = cli.has('--dry-run');
 
-const hours = Number(arg('--hours', '24'));
-const dateArg = arg('--date', null);
-const reportFileArg = arg('--report-file', '');
-const webhookFile = join(dirname(__dirname), '.teams-webhook');
-const fileWebhooks = existsSync(webhookFile) 
-  ? readFileSync(webhookFile, 'utf8').split('\n').map(s => s.trim()).filter(Boolean)
-  : [];
-const webhookUrls = [process.env.TEAMS_WEBHOOK_URL, arg('--webhook', ''), ...fileWebhooks].filter(Boolean);
-const dryRun = args.includes('--dry-run');
+const webhookUrls = resolveWebhookUrls({
+  cliUrl: cli.get('--webhook', ''),
+  baseDir
+});
+
+// ── Report generation (fallback) ────────────────────────────────
 
 function runGenerate() {
   return new Promise((resolve, reject) => {
@@ -36,13 +40,16 @@ function runGenerate() {
 }
 
 function readReportFile(filePath) {
-  const fullPath = filePath.startsWith('/') ? filePath : join(dirname(__dirname), filePath);
+  const fullPath = filePath.startsWith('/') ? filePath : join(baseDir, filePath);
   if (!existsSync(fullPath)) throw new Error(`Report file not found: ${fullPath}`);
   return readFileSync(fullPath, 'utf8').trim();
 }
 
+// ── Markdown parsing ────────────────────────────────────────────
+
 function getDateLine(text) {
-  return (text.match(/\d{4}年\d{2}月\d{2}日/) || [''])[0] || `${new Date().getUTCFullYear()}年${String(new Date().getUTCMonth() + 1).padStart(2, '0')}月${String(new Date().getUTCDate()).padStart(2, '0')}日`;
+  return (text.match(/\d{4}年\d{2}月\d{2}日/) || [''])[0]
+    || `${new Date().getUTCFullYear()}年${String(new Date().getUTCMonth() + 1).padStart(2, '0')}月${String(new Date().getUTCDate()).padStart(2, '0')}日`;
 }
 
 function sectionSlice(text, start, endList) {
@@ -119,7 +126,7 @@ function ensureSummary(summary) {
     s += ' 这也会影响产品交互路径与设计协作效率。';
   }
   if (s.length < 100) s += ' 对团队而言，这条信息可作为近期产品与设计协同决策的参考。';
-  if (s.length > 140) s = s.slice(0, 139) + '…';
+  if (s.length > 140) s = s.slice(0, 139) + '。';
   return s;
 }
 
@@ -150,11 +157,11 @@ function parseReport(raw, fromReportFile = false) {
   return { top10, summary: { paragraph } };
 }
 
+// ── Validation (red-line checks from SKILL.md) ──────────────────
+
 function validateStructured(data) {
   const issues = [];
-  // 红线清单：条数
   if (data.top10.length !== 10) issues.push(`[红线] TOP 10 条数必须为 10，当前为 ${data.top10.length}`);
-  // 红线清单：小结与展望
   if (!data.summary?.paragraph || !String(data.summary.paragraph).trim()) issues.push('[红线] 小结与展望缺失或为空');
 
   const seenUrls = new Set();
@@ -165,42 +172,14 @@ function validateStructured(data) {
     if (it.url) seenUrls.add(it.url);
     if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`[红线] TOP 10 第${idx + 1}条为占位摘要，非真实内容`);
     if (it.summary.length < 100 || it.summary.length > 140) issues.push(`[红线] TOP 10 第${idx + 1}条摘要长度异常（${it.summary.length}字，要求 100-140）`);
-    if (/[.．…]\s*$/.test(String(it.summary).trim())) issues.push(`[红线] TOP 10 第${idx + 1}条摘要不得以省略号结尾`);
+    if (/[…．]\s*$/.test(String(it.summary).trim())) issues.push(`[红线] TOP 10 第${idx + 1}条摘要不得以省略号结尾`);
+    if (/\.\.\.\s*$/.test(String(it.summary).trim())) issues.push(`[红线] TOP 10 第${idx + 1}条摘要不得以省略号结尾`);
   });
 
   return issues;
 }
 
-function sectionHeader(emoji, title) {
-  return { type: 'TextBlock', text: `${emoji} ${title}`, weight: 'Bolder', size: 'Medium', separator: true, spacing: 'Large', wrap: true };
-}
-
-function itemBlocks(item) {
-  return [
-    { type: 'TextBlock', text: item.title, weight: 'Bolder', wrap: true, spacing: 'Medium' },
-    { type: 'TextBlock', text: item.summary, wrap: true, spacing: 'Small' },
-    { type: 'TextBlock', text: `👉 [点击查看](${item.url})`, wrap: true, spacing: 'Small', isSubtle: true }
-  ];
-}
-
-function buildCard(dateLine, data) {
-  return {
-    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
-    type: 'AdaptiveCard',
-    version: '1.5',
-    body: [
-      { type: 'TextBlock', text: dateLine, isSubtle: true, spacing: 'None', wrap: true },
-      { type: 'TextBlock', text: 'AI设计日报Beta（TAI-IPX x 🦞）', size: 'Large', weight: 'Bolder', wrap: true },
-      { type: 'TextBlock', text: '追踪过去24小时AI前沿热点事件', isSubtle: true, spacing: 'None', wrap: true },
-
-      sectionHeader('📌', 'TOP 10'),
-      ...data.top10.flatMap((x) => itemBlocks(x)),
-
-      sectionHeader('🧭', '小结与展望'),
-      { type: 'TextBlock', text: data.summary.paragraph, wrap: true, spacing: 'Medium' }
-    ]
-  };
-}
+// ── Main ────────────────────────────────────────────────────────
 
 async function main() {
   const raw = reportFileArg ? readReportFile(reportFileArg) : await runGenerate();
@@ -212,7 +191,7 @@ async function main() {
   const card = buildCard(dateLine, data);
 
   if (dryRun || webhookUrls.length === 0) {
-    console.log(JSON.stringify({ card }, null, 2));
+    console.log(JSON.stringify(wrapCardForTeams(card), null, 2));
     if (webhookUrls.length === 0) console.error('\n⚠️  No webhook URL set. Set TEAMS_WEBHOOK_URL env var or pass --webhook');
     process.exit(0);
   }
@@ -220,10 +199,18 @@ async function main() {
   let allOk = true;
   for (let i = 0; i < webhookUrls.length; i++) {
     const url = webhookUrls[i];
+    /**
+     * Teams Workflow Webhook (post-2024, replaces O365 Connectors) expects:
+     * { type: "message", attachments: [{ contentType: "application/vnd.microsoft.card.adaptive", content: card }] }
+     *
+     * If using a custom Power Automate flow that parses `{ card }` directly,
+     * switch to: JSON.stringify({ card })
+     */
+    const payload = wrapCardForTeams(card);
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ card })
+      body: JSON.stringify(payload)
     });
     console.log(`Webhook ${i + 1}/${webhookUrls.length}: ${res.status} ${res.statusText}`);
     if (!res.ok) {
