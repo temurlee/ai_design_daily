@@ -74,9 +74,6 @@ function parseItems(sectionText) {
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
-    // 跳过纯分割线与旧的 📌 行，避免被误解析为第一条标题
-    if (/^[━─═\s]+$/.test(line)) continue;
-    if (/^📌\s*(TOP 10)?\s*$/.test(line)) continue;
 
     const linkMatch = line.match(/👉\s*\[点击查看\]\((https?:\/\/[^)]+)\)/);
     if (linkMatch) {
@@ -115,10 +112,6 @@ function parseItems(sectionText) {
   return out;
 }
 
-function normalizeSummary(summary) {
-  return (summary || '').replace(/\s+/g, ' ').trim();
-}
-
 function ensureSummary(summary) {
   let s = (summary || '').replace(/\s+/g, ' ').trim();
   if (!s) return '';
@@ -135,22 +128,9 @@ function ensureUrl(url) {
   return '';
 }
 
-function listSectionFromRaw(raw) {
-  const idx = raw.indexOf('🧭 小结与展望');
-  const before = idx >= 0 ? raw.slice(0, idx).trim() : '';
-  const lines = before.split(/\r?\n/);
-  let start = 0;
-  if (lines[start] && /\d{4}年\d{1,2}月\d{1,2}日/.test(lines[start])) start++;
-  if (lines[start] && /《AI设计日报》/.test(lines[start])) start++;
-  if (lines[start] && /追踪过去24小时/.test(lines[start])) start++;
-  while (start < lines.length && !lines[start].trim()) start++;
-  if (start < lines.length && /^📌\s*(TOP 10)?\s*$/.test(lines[start].trim())) start++;
-  return lines.slice(start).join('\n');
-}
-
 function parseReport(raw, fromReportFile = false) {
-  const listText = listSectionFromRaw(raw);
-  let top10 = parseItems(listText);
+  const top10Text = sectionSlice(raw, '📌 TOP 10', ['🧭 小结与展望']);
+  let top10 = parseItems(top10Text);
   top10 = top10.slice(0, 10);
 
   for (const it of top10) {
@@ -172,35 +152,21 @@ function parseReport(raw, fromReportFile = false) {
 
 function validateStructured(data) {
   const issues = [];
-  const redlinePatterns = [
-    /本日报由\s*AI\s*自动生成/i,
-    /来自\s*\d+\s*个博主/i,
-    /折腾是乐趣/,
-    /提醒我们/,
-    /我认为|我觉得|我们认为/,
-    /值得期待|令人振奋|重磅|炸裂/
-  ];
-
-  if (data.top10.length < 1 || data.top10.length > 10) issues.push(`[红线] 列表条数须在 1～10 之间，当前为 ${data.top10.length}`);
+  // 红线清单：条数
+  if (data.top10.length !== 10) issues.push(`[红线] TOP 10 条数必须为 10，当前为 ${data.top10.length}`);
+  // 红线清单：小结与展望
   if (!data.summary?.paragraph || !String(data.summary.paragraph).trim()) issues.push('[红线] 小结与展望缺失或为空');
 
   const seenUrls = new Set();
   data.top10.forEach((it, idx) => {
-    if (!it.title) issues.push(`第${idx + 1}条标题缺失`);
-    if (!it.url) issues.push(`第${idx + 1}条链接缺失/非法`);
-    if (seenUrls.has(it.url)) issues.push(`[红线] 列表内重复 URL：${it.url}`);
+    if (!it.title) issues.push(`TOP 10 第${idx + 1}条标题缺失`);
+    if (!it.url) issues.push(`TOP 10 第${idx + 1}条链接缺失/非法`);
+    if (seenUrls.has(it.url)) issues.push(`[红线] TOP 10 内重复 URL：${it.url}`);
     if (it.url) seenUrls.add(it.url);
-    if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`[红线] 第${idx + 1}条为占位摘要，非真实内容`);
-    if (it.summary.length < 100 || it.summary.length > 140) issues.push(`[红线] 第${idx + 1}条摘要长度异常（${it.summary.length}字，要求 100-140）`);
-    if (/[.．…]\s*$/.test(String(it.summary).trim())) issues.push(`[红线] 第${idx + 1}条摘要不得以省略号结尾`);
-    if (/该动态强调|这条信息围绕/.test(it.summary)) issues.push(`第${idx + 1}条摘要出现模板腔`);
-    if (redlinePatterns.some((re) => re.test(it.summary))) issues.push(`第${idx + 1}条摘要触发红线表达`);
+    if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`[红线] TOP 10 第${idx + 1}条为占位摘要，非真实内容`);
+    if (it.summary.length < 100 || it.summary.length > 140) issues.push(`[红线] TOP 10 第${idx + 1}条摘要长度异常（${it.summary.length}字，要求 100-140）`);
+    if (/[.．…]\s*$/.test(String(it.summary).trim())) issues.push(`[红线] TOP 10 第${idx + 1}条摘要不得以省略号结尾`);
   });
-
-  const p = String(data.summary?.paragraph || '').trim();
-  if (p.includes('\n')) issues.push('小结与展望必须为单段，不得换行分段');
-  if (/[.…]{2,}|…$|\.\.\.$/.test(p)) issues.push('小结与展望存在省略号结尾或不完整句');
-  if (redlinePatterns.some((re) => re.test(p))) issues.push('小结与展望触发红线表达（主观发挥/后记/自述）');
 
   return issues;
 }
@@ -226,8 +192,10 @@ function buildCard(dateLine, data) {
       { type: 'TextBlock', text: dateLine, isSubtle: true, spacing: 'None', wrap: true },
       { type: 'TextBlock', text: 'AI设计日报Beta（TAI-IPX x 🦞）', size: 'Large', weight: 'Bolder', wrap: true },
       { type: 'TextBlock', text: '追踪过去24小时AI前沿热点事件', isSubtle: true, spacing: 'None', wrap: true },
-      { type: 'TextBlock', separator: true, spacing: 'Medium' },
+
+      sectionHeader('📌', 'TOP 10'),
       ...data.top10.flatMap((x) => itemBlocks(x)),
+
       sectionHeader('🧭', '小结与展望'),
       { type: 'TextBlock', text: data.summary.paragraph, wrap: true, spacing: 'Medium' }
     ]

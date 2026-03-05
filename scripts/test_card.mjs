@@ -12,7 +12,7 @@ const webhookUrl = process.env.TEAMS_WEBHOOK_URL || args.find(a => a.startsWith(
 const now = new Date();
 const reportDate = `${now.getUTCFullYear()}年${String(now.getUTCMonth() + 1).padStart(2, '0')}月${String(now.getUTCDate()).padStart(2, '0')}日`;
 
-// Mock data for list (1～10 条，无 TOP 10 标题)
+// Mock data for TOP 10
 const top10 = [
   { title: 'Figma 测试 Nano Banana 2', summary: 'Figma 内测 Nano Banana 2，输出更快、支持专业级图像生成，并在 Figma 与 Figma Weave 中逐步开放。设计工具与生成式能力的结合将影响原型与视觉稿的生产效率。', url: 'https://x.com/figma/status/2027158979559014790' },
   { title: 'Codex to Figma 与 OpenAI 打通', summary: 'Codex 与 Figma 实现代码与画布双向同步，接入 OpenAI。设计到代码的闭环有助于降低协作成本，设计师需关注组件与设计系统在此流程中的一致性。', url: 'https://x.com/figma/status/2027068943702364250' },
@@ -48,7 +48,7 @@ const card = {
     { type: 'TextBlock', text: reportDate, isSubtle: true, spacing: 'None', wrap: true },
     { type: 'TextBlock', text: 'AI设计日报Beta（TAI-IPX x 🦞）', size: 'Large', weight: 'Bolder', wrap: true },
     { type: 'TextBlock', text: '追踪过去24小时AI前沿热点事件', isSubtle: true, spacing: 'None', wrap: true },
-    { type: 'TextBlock', separator: true, spacing: 'Medium' },
+    sectionHeader('📌', 'TOP 10'),
     ...top10.flatMap((x) => buildCardItem(x)),
     sectionHeader('🧭', '小结与展望'),
     { type: 'TextBlock', text: summaryParagraph, wrap: true, spacing: 'Medium' }
