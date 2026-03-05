@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 🦊 **Camofox 采集**：子代理自动访问关注账号列表（`query-presets.json`），采集推文 URL 并生成 ID 文件
+- 🦊 **Camofox 采集**：主会话分段执行，每采 3～5 个账号即落盘（追加 `camofox-urls.txt`），断点可续跑，再生成 ID 文件
 - 🤖 **AI 生成日报**：按规范生成中文新闻式标题和摘要
 - 📤 **多渠道发送**：支持 Teams（Adaptive Card），可扩展其他渠道
 - ⏰ **Cron 自动化**：配合 OpenClaw 实现定时执行（采集 9:00，发送 10:00）
@@ -20,45 +20,33 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        OpenClaw 主进程                           │
+│                     OpenClaw 主会话（分段执行）                     │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│   9:00 Cron ──────► 子代理 A（采集任务）                        │
+│   9:00 Cron ──────► 采集段（主会话）                             │
+│                     • Camofox 逐个账号采集                        │
+│                     • 每 3～5 账号落盘 → camofox-urls.txt        │
+│                     • 断点可续跑，不丢进度                         │
+│                     • 完成后 → collect_ids → latest-ids.json     │
 │                          │                                      │
-│                          ▼                                      │
-│                   ┌─────────────┐                               │
-│                   │  Camofox    │                               │
-│                   │  浏览器采集  │                               │
-│                   └──────┬──────┘                               │
-│                          │                                      │
-│                          ▼                                      │
-│                   camofox-latest-ids.json                       │
-│                          │                                      │
-│   10:00 Cron ──────► 子代理 B（生成发送）                        │
-│                          │                                      │
-│                          ▼                                      │
-│                   ┌─────────────┐                               │
-│                   │  AI 生成    │                               │
-│                   │  高质量日报  │                               │
-│                   └──────┬──────┘                               │
-│                          │                                      │
+│   10:00 Cron ──────► 发送段（主会话，每段可恢复）                 │
+│                          │ 拉取候选 → AI 写稿 → 写文件 → 发送    │
 │                          ▼                                      │
 │                   ┌─────────────┐                               │
 │                   │  Teams      │                               │
 │                   │  Webhook    │                               │
 │                   └─────────────┘                               │
-│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 数据流
 
 ```
-1. 采集阶段（9:00）
+1. 采集阶段（9:00，主会话分段，每 3～5 账号落盘）
    ┌──────────┐    ┌──────────────┐    ┌─────────────────┐
    │ 关注账号列表 │───►│ Camofox 访问  │───►│ 推文 URL 列表    │
-   │ 列表     │    │ Twitter 账号  │    │ camofox-urls.txt│
-   └──────────┘    └──────────────┘    └────────┬────────┘
+   │ 列表     │    │ 每批 3～5 账号 │    │ camofox-urls.txt│
+   └──────────┘    │ 追加落盘     │    │ （断点可续）     │
+                   └──────────────┘    └────────┬────────┘
                                                │
                                                ▼
                                       ┌─────────────────┐
@@ -152,14 +140,14 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
 
 在 OpenClaw 中创建两个 Cron 任务：
 
-**采集任务（每天 9:00 工作日）**：
+**采集任务（每天 9:00 工作日，主会话分段执行）**：
 ```json
 {
   "name": "AI日报 Camofox 采集",
   "schedule": { "kind": "cron", "expr": "0 9 * * 1-5", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行AI日报 Camofox 采集：\n\n1. 读取 references/query-presets.json，获取关注账号列表（bloggers + official 合并）\n2. 必须完整遍历上述列表中每一个账号，不得跳过。使用 Camofox 逐个访问每个账号的 X profile 页面\n3. 滚动页面采集最近 24 小时内的推文，只复制 status URL，写入 cache/camofox-urls.txt\n4. 运行 node scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48\n5. 汇报采集结果：成功与失败的账号列表",
+    "message": "执行AI日报 Camofox 采集（主会话分段，防断流）：\n\n1. 读取 references/query-presets.json 关注账号列表\n2. 使用 Camofox 逐个访问每个账号的 X profile，滚动采集最近 24 小时内推文，只复制 status URL\n3. **每采完 3～5 个账号即将本批 URL 追加写入 cache/camofox-urls.txt（落盘）**，断点后可从未采账号续跑\n4. 全部账号尝试完毕后，运行 node scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48\n5. 汇报采集结果：成功与失败的账号列表",
     "timeoutSeconds": 3600
   }
 }
@@ -167,7 +155,7 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
 
 **发送任务（每天 10:00 工作日）**：
 
-子代理需按 SKILL.md「子代理执行指令」执行：先拉取候选数据（运行 generate_report.mjs --candidates-only），再根据 SKILL 用 AI 生成日报正文，写入 cache/generated-report.md，最后运行 send_to_teams.mjs --report-file cache/generated-report.md 发送。详细步骤见 SKILL.md。若你有本地个人偏好文档，可自行提供给子代理参考。
+主会话按 SKILL.md「发送段执行指令」执行：先拉取候选数据（generate_report.mjs --candidates-only），再根据 SKILL 用 AI 生成日报正文，写入 cache/generated-report.md，最后运行 send_to_teams.mjs --report-file 发送。每段可单独恢复。详见 SKILL.md。
 
 ```json
 {
@@ -175,7 +163,7 @@ mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
   "schedule": { "kind": "cron", "expr": "0 10 * * 1-5", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行AI设计日报生成并发送（完整步骤见本 skill 的 SKILL.md「子代理执行指令」）：\n\n1. 在 ai_design_daily 技能根目录运行：node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json\n2. 阅读 SKILL.md，根据 cache/candidates.json 中的 candidates 用 AI 生成日报：列表 1～10 条（候选几条出几条），每条新闻式标题+100-140字中文摘要+链接，小结一段话；不展示 TOP 10/当日精选；全部中文、无英文残留、禁止模板腔与省略号结尾\n3. 将生成的日报按 SKILL 中约定的 Markdown 格式写入 cache/generated-report.md\n4. 运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送到 Teams",
+    "message": "执行AI设计日报生成并发送（主会话分段，见 SKILL.md「发送段执行指令」）：\n\n1. 在 ai_design_daily 技能根目录运行：node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json\n2. 阅读 SKILL.md，根据 cache/candidates.json 中的 candidates 用 AI 生成日报：列表 1～10 条，每条新闻式标题+100-140字中文摘要+链接，小结一段话；不展示 TOP 10/当日精选；全部中文、无英文残留、禁止模板腔与省略号结尾\n3. 将生成的日报按 SKILL 约定格式写入 cache/generated-report.md\n4. 运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送到 Teams",
     "timeoutSeconds": 600
   }
 }

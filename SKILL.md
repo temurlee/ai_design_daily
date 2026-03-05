@@ -234,6 +234,7 @@ Tabbit 发布：光年之外团队推出 AI 浏览器
 
 - **主通道（默认）**: Camofox（低成本）
   - **必须完整遍历** `references/query-presets.json` 中关注账号列表的每一个账号，按列表顺序逐个访问，不得跳过；若某账号访问失败，记录该账号及原因后继续下一个，最后汇总成功/失败列表
+  - **每采完 3～5 个账号即将本批 URL 追加写入 `cache/camofox-urls.txt`（落盘）**，断点后可从未采账号续跑，避免长链路断流全盘重来
   - 建议每账号抓取 30-50 条，时间窗口默认过去 24 小时
   - 做增量去重（按 tweet/status id）
 - **兜底通道（可选）**: grok-search
@@ -254,19 +255,22 @@ Tabbit 发布：光年之外团队推出 AI 浏览器
 
 **约束（强制）**：
 - **每次触发发送任务 = 全链路重跑**：不得复用前一日或更早的 `cache/camofox-urls.txt`、`cache/camofox-latest-ids.json`、`cache/fxtwitter-state.json` 直接出日报；必须从「采集 → 生成 ID → fxtwitter 拉取详情 → AI 写稿 → `--report-file` 发送」全链路重新执行一遍。
-- **采集内容必须完整覆盖来源**：一次采集任务必须尝试访问 `query-presets.json` 中关注账号列表的**每一个账号**（逐个访问 profile，不得跳过）；若某账号失败则记录 handle 与原因并继续，最终在汇报中给出「成功/失败账号列表」，在未尝试完整账号列表前不得宣称采集完成。
+- **采集内容必须完整覆盖来源**：必须尝试访问 `query-presets.json` 中关注账号列表的**每一个账号**；某账号失败则记录后继续，最终汇报「成功/失败账号列表」。
+
+**执行方式（防断流）**：**不再用单个长跑子代理**，改为**主会话分段执行**，每段可单独恢复：
+- **采集段**：主会话用 Camofox 逐个访问关注账号，**每采完 3～5 个账号就将本批 URL 追加写入 `cache/camofox-urls.txt`（落盘）**；断点后可从未采账号继续，无需全盘重来。完整覆盖账号列表后，运行 `collect_ids_camofox.mjs` 生成 `cache/camofox-latest-ids.json`。
+- **发送段**：采集完成后执行「拉取候选 → AI 写稿 → 写入文件 → 发送」，可按 SKILL 子代理执行指令分步执行，任一步失败可重跑该段。
 
 **采集任务（每天 9:00，仅采集不发送）**：
-- 子代理读取 `references/query-presets.json`，**完整遍历**其中关注账号列表（`bloggers`，`official` 为空时仅用 `bloggers`）的每一个账号，使用 Camofox 逐个访问其 X 个人页，滚动采集最近 24 小时内推文 URL，写入 `cache/camofox-urls.txt`，再运行 `collect_ids_camofox.mjs` 生成 `cache/camofox-latest-ids.json`
-- **不得跳过任一账号**；失败则记录后继续，最后汇报采集结果（成功/失败账号列表）
-- 本任务**不执行**生成日报或发送
+- 主会话读取 `references/query-presets.json` 关注账号列表，用 Camofox 逐个访问其 X 个人页，滚动采集最近 24 小时内推文 status URL；**每采完 3～5 个账号即追加写入 `cache/camofox-urls.txt`**，避免长链路断流导致全盘丢失。
+- 全部账号尝试完毕后，运行 `node scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48`，汇报采集结果（成功/失败账号列表）。本任务不执行生成日报或发送。
 
-**发送任务（每天 10:00）**（需在采集任务完成后触发）：
+**发送任务（每天 10:00）**（需在采集完成后触发）：
 ```
-Cron 触发子代理 → 子代理：拉取候选 → 用 AI 按 SKILL 生成日报 → 写入文件 → 调用脚本发送
+Cron 触发 → 主会话分段执行：拉取候选 → 用 AI 按 SKILL 生成日报 → 写入文件 → 调用脚本发送（每段可恢复）
 ```
 
-**子代理执行指令（必须按顺序执行）**：
+**发送段执行指令（拉取候选 → 写稿 → 发送，须按顺序执行）**：
 
 1. **拉取候选数据**：在 skill 根目录执行  
    `node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json`  
@@ -301,8 +305,7 @@ Cron 触发子代理 → 子代理：拉取候选 → 用 AI 按 SKILL 生成日
    `node scripts/send_to_teams.mjs --report-file cache/generated-report.md`  
    （webhook 从 `.teams-webhook` 或环境变量读取）。发送前脚本会校验条数、摘要长度与格式，不通过则报错不发送。
 
-**手动触发**：
-告诉主代理"发日报"或"执行AI设计日报"，子代理按上述 1～5 步执行。
+**手动触发**：告诉主代理"发日报"或"执行AI设计日报"，主会话按上述 1～5 步执行发送段；采集段按「每 3～5 账号落盘」执行。
 
 ---
 
