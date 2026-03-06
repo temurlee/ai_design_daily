@@ -8,6 +8,8 @@
   },
   "scripts": {
     "collect": "node scripts/collect_ids_camofox.mjs",
+    "attempts": "node scripts/build_account_attempts.mjs",
+    "strict": "node scripts/run_strict.mjs",
     "generate": "node scripts/generate_report.mjs",
     "send": "node scripts/send_to_teams.mjs",
     "test-card": "node scripts/test_card.mjs --dry-run"

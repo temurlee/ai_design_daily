@@ -2,7 +2,7 @@
 import { execFile } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import {
   parseCliArgs,
   buildCard,
@@ -23,6 +23,13 @@ const webhookUrls = resolveWebhookUrls({
   cliUrl: cli.get('--webhook', ''),
   baseDir
 });
+
+// payload mode:
+// - workflow: Teams Workflow webhook envelope {type:'message', attachments:[...]} (default)
+// - card: custom Power Automate flow expecting { card }
+// - text: custom flow expecting { text }
+const payloadMode = cli.get('--payload-mode', process.env.TEAMS_PAYLOAD_MODE || 'workflow');
+const executionReportPath = join(baseDir, cli.get('--execution-report', 'cache/execution-report.txt'));
 
 // ── Report generation (fallback) ────────────────────────────────
 
@@ -165,6 +172,7 @@ function validateStructured(data) {
   if (!data.summary?.paragraph || !String(data.summary.paragraph).trim()) issues.push('[红线] 小结与展望缺失或为空');
 
   const seenUrls = new Set();
+  let boilerplateHits = 0;
   data.top10.forEach((it, idx) => {
     if (!it.title) issues.push(`TOP 10 第${idx + 1}条标题缺失`);
     if (!it.url) issues.push(`TOP 10 第${idx + 1}条链接缺失/非法`);
@@ -174,51 +182,152 @@ function validateStructured(data) {
     if (it.summary.length < 100 || it.summary.length > 140) issues.push(`[红线] TOP 10 第${idx + 1}条摘要长度异常（${it.summary.length}字，要求 100-140）`);
     if (/[…．]\s*$/.test(String(it.summary).trim())) issues.push(`[红线] TOP 10 第${idx + 1}条摘要不得以省略号结尾`);
     if (/\.\.\.\s*$/.test(String(it.summary).trim())) issues.push(`[红线] TOP 10 第${idx + 1}条摘要不得以省略号结尾`);
+
+    if (/该动态显示相关团队正在推进产品与工作流迭代/.test(it.summary)) boilerplateHits++;
+    const englishRatio = ((String(it.title).match(/[A-Za-z]/g) || []).length) / Math.max(1, String(it.title).length);
+    if (englishRatio > 0.5) issues.push(`[红线] TOP 10 第${idx + 1}条标题英文占比过高，需中文新闻式改写`);
   });
 
+  if (boilerplateHits >= 2) issues.push('[红线] 摘要出现模板化重复句式（>=2条），需重写');
+
   return issues;
+}
+
+function tryReadJson(path) {
+  try {
+    if (!existsSync(path)) return null;
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function buildExecutionReport({ startMs, endMs, data, webhookResults, failureReasons = [] }) {
+  const presets = tryReadJson(join(baseDir, 'references/query-presets.json')) || {};
+  const officialSet = new Set((presets.official || []).map(h => String(h).toLowerCase()));
+  const attemptedHandles = [...(presets.bloggers || []), ...(presets.official || [])].map(h => String(h).toLowerCase());
+
+  const urlsPath = join(baseDir, 'cache/camofox-urls.txt');
+  const urlLines = existsSync(urlsPath)
+    ? readFileSync(urlsPath, 'utf8').split(/\r?\n/).map(s => s.trim()).filter(s => /\/status\/\d+/.test(s))
+    : [];
+
+  const handleCounts = new Map();
+  for (const u of urlLines) {
+    const m = u.match(/x\.com\/([^/]+)\/status\/\d+/i);
+    if (!m) continue;
+    const h = `@${m[1]}`.toLowerCase();
+    handleCounts.set(h, (handleCounts.get(h) || 0) + 1);
+  }
+
+  const successHandles = attemptedHandles.filter(h => (handleCounts.get(h) || 0) > 0);
+  const failedHandles = attemptedHandles.filter(h => (handleCounts.get(h) || 0) === 0);
+
+  const idsJson = tryReadJson(join(baseDir, 'cache/camofox-latest-ids.json'));
+  const idCount = Array.isArray(idsJson?.items) ? idsJson.items.length : 0;
+
+  const candidatesJson = tryReadJson(join(baseDir, 'cache/candidates.json'));
+  const candidateCount = Array.isArray(candidatesJson?.candidates) ? candidatesJson.candidates.length : 0;
+  const selectionMeta = candidatesJson?.selection || {};
+  const designCountMeta = Number(selectionMeta.designCount || 0) || 0;
+  const strategyHitText = selectionMeta.triggeredHighQualityBoost ? '是（高质量>=7，已提升设计向）' : '否';
+  const backfillText = selectionMeta.usedNonDesignBackfill ? '是（设计向不足，已补位）' : '否';
+
+  const durationSec = Math.max(0, Math.floor((endMs - startMs) / 1000));
+  const mm = String(Math.floor(durationSec / 60));
+  const ss = String(durationSec % 60).padStart(2, '0');
+
+  const webhookLines = webhookResults.length
+    ? webhookResults.map((x, i) => `| Webhook ${i + 1} | ${x.ok ? '✅ 发送成功' : `❌ 发送失败（${x.status || 'unknown'}）`} |`).join('\n')
+    : '| Webhook 1 | ❌ 未配置 |';
+
+  const attemptMeta = tryReadJson(join(baseDir, 'cache/account-attempts.json')) || {};
+  const successDetails = successHandles.length
+    ? successHandles.map(h => `• ${h}: ${handleCounts.get(h) || 0}条`).join('\n')
+    : '无';
+  const failedDetails = failedHandles.length
+    ? failedHandles.map(h => {
+        const reason = attemptMeta[h]?.reason
+          || (officialSet.has(h) ? '过去24小时内无可用新帖' : '本轮未采集到URL（可能是页面访问/滚动采集失败）');
+        return `• ${h}: ${reason}`;
+      }).join('\n')
+    : '无';
+
+  const failureText = failureReasons.length
+    ? `失败原因\n${failureReasons.map((x, i) => `${i + 1}. ${x}`).join('\n')}\n\n`
+    : '';
+
+  return `✅ Subagent main finished\n执行完成报告\n总耗时: ${mm}分${ss}秒\n\n${failureText}执行统计\n| 指标 | 数量 |\n| ----- | --- |\n| 尝试账号数 | ${attemptedHandles.length} |\n| 成功账号 | ${successHandles.length} |\n| 失败账号 | ${failedHandles.length} |\n| URL数 | ${urlLines.length} |\n| ID数 | ${idCount} |\n| 候选数 | ${candidateCount} |\n| 最终条目数 | ${data.top10.length} |\n| 设计向条目数 | ${designCountMeta}/10 |\n| 策略命中（高质量>=7提升） | ${strategyHitText} |\n| 非设计向补位触发 | ${backfillText} |\n\n账号采集详情\n成功采集（${successHandles.length}个）:\n${successDetails}\n\n无过去24小时推文（${failedHandles.length}个）:\n${failedDetails}\n\nWebhook 发送状态\n| Webhook | 状态 |\n| --------- | --------------- |\n${webhookLines}\n\n详细执行报告已保存至: cache/execution-report.txt`;
 }
 
 // ── Main ────────────────────────────────────────────────────────
 
 async function main() {
+  const startMs = Date.now();
   const raw = reportFileArg ? readReportFile(reportFileArg) : await runGenerate();
   const dateLine = getDateLine(raw);
   const data = parseReport(raw, !!reportFileArg);
   const issues = validateStructured(data);
-  if (issues.length) throw new Error(`发送前校验失败（红线命中即不发送）：${issues.join('；')}`);
+  if (issues.length) {
+    const reportText = buildExecutionReport({
+      startMs,
+      endMs: Date.now(),
+      data,
+      webhookResults: [{ ok: false, status: 'redline-check-failed' }],
+      failureReasons: issues
+    });
+    mkdirSync(dirname(executionReportPath), { recursive: true });
+    writeFileSync(executionReportPath, reportText, 'utf8');
+    console.log('\n' + reportText);
+    throw new Error(`发送前校验失败（红线命中即不发送）：${issues.join('；')}`);
+  }
 
   const card = buildCard(dateLine, data);
 
+  const payload = payloadMode === 'card'
+    ? { card }
+    : payloadMode === 'text'
+      ? { text: `${dateLine}\nAI设计日报\n\n${data.top10.map((x, i) => `${i + 1}. ${x.title}\n${x.summary}\n${x.url}`).join('\n\n')}\n\n${data.summary.paragraph}` }
+      : wrapCardForTeams(card);
+
   if (dryRun || webhookUrls.length === 0) {
-    console.log(JSON.stringify(wrapCardForTeams(card), null, 2));
+    console.log(JSON.stringify(payload, null, 2));
     if (webhookUrls.length === 0) console.error('\n⚠️  No webhook URL set. Set TEAMS_WEBHOOK_URL env var or pass --webhook');
     process.exit(0);
   }
 
   let allOk = true;
+  const webhookResults = [];
+  const failureReasons = [];
   for (let i = 0; i < webhookUrls.length; i++) {
     const url = webhookUrls[i];
-    /**
-     * Teams Workflow Webhook (post-2024, replaces O365 Connectors) expects:
-     * { type: "message", attachments: [{ contentType: "application/vnd.microsoft.card.adaptive", content: card }] }
-     *
-     * If using a custom Power Automate flow that parses `{ card }` directly,
-     * switch to: JSON.stringify({ card })
-     */
-    const payload = wrapCardForTeams(card);
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     console.log(`Webhook ${i + 1}/${webhookUrls.length}: ${res.status} ${res.statusText}`);
-    if (!res.ok) {
+    const ok = !!res.ok;
+    webhookResults.push({ ok, status: `${res.status} ${res.statusText}` });
+    if (!ok) {
       const body = await res.text();
       console.error(body);
+      failureReasons.push(`Webhook ${i + 1} 失败：${res.status} ${res.statusText}${body ? ` | ${String(body).slice(0, 200)}` : ''}`);
       allOk = false;
     }
   }
+
+  const reportText = buildExecutionReport({
+    startMs,
+    endMs: Date.now(),
+    data,
+    webhookResults,
+    failureReasons
+  });
+  mkdirSync(dirname(executionReportPath), { recursive: true });
+  writeFileSync(executionReportPath, reportText, 'utf8');
+  console.log('\n' + reportText);
+
   if (!allOk) process.exit(1);
   console.log('✅ Report sent to all Teams webhooks');
 }

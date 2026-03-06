@@ -274,31 +274,73 @@ async function fetchStatusDetail(id) {
 
 // ── Selection ───────────────────────────────────────────────────
 
-function pickWithRatio(pool, n, targetDesign = 0.7, exclude = new Set(), maxPerHandle = 2) {
+function pickWithDesignPolicy(pool, n, {
+  targetDesignRatio = 0.7,
+  minDesign = 5,
+  highQualityDesignThreshold = 7,
+  maxPerHandle = 2
+} = {}) {
   const out = [];
-  const designNeed = Math.round(n * targetDesign);
+  const used = new Set();
   const handleCount = new Map();
-  let d = 0;
 
-  for (const i of pool) {
-    if (exclude.has(i._id) || out.length >= n) continue;
-    const h = handleOf(i) || '@unknown';
-    if ((handleCount.get(h) || 0) >= maxPerHandle) continue;
-    if (i._isDesign && d < designNeed) {
-      out.push(i); exclude.add(i._id); d++;
-      handleCount.set(h, (handleCount.get(h) || 0) + 1);
-    }
+  const designPool = pool.filter(i => i._isDesign);
+  const generalPool = pool.filter(i => !i._isDesign);
+
+  // “高质量设计向”定义：设计向且综合分>=40
+  const highQualityDesign = designPool.filter(i => Number(i._score || 0) >= 40);
+
+  const targetByRatio = Math.round(n * targetDesignRatio);
+  let designTarget = Math.max(minDesign, targetByRatio);
+
+  // 若当天高质量设计向 >= 7，优先提到 7-8 条（受总量与比例目标约束）
+  if (highQualityDesign.length >= highQualityDesignThreshold) {
+    designTarget = Math.max(designTarget, 7);
+    designTarget = Math.min(designTarget, 8);
   }
 
-  for (const i of pool) {
-    if (exclude.has(i._id) || out.length >= n) continue;
-    const h = handleOf(i) || '@unknown';
-    if ((handleCount.get(h) || 0) >= maxPerHandle) continue;
-    out.push(i); exclude.add(i._id);
+  function tryPush(item) {
+    if (!item || used.has(item._id) || out.length >= n) return false;
+    const h = handleOf(item) || '@unknown';
+    if ((handleCount.get(h) || 0) >= maxPerHandle) return false;
+    out.push(item);
+    used.add(item._id);
     handleCount.set(h, (handleCount.get(h) || 0) + 1);
+    return true;
   }
 
-  return out;
+  // Step 1: 先从设计池拿到目标设计条数
+  for (const i of designPool) {
+    if (out.filter(x => x._isDesign).length >= designTarget) break;
+    tryPush(i);
+  }
+
+  // Step 2: 剩余名额用非设计池补齐
+  for (const i of generalPool) {
+    if (out.length >= n) break;
+    tryPush(i);
+  }
+
+  // Step 3: 若仍未满，再从全池补齐
+  for (const i of pool) {
+    if (out.length >= n) break;
+    tryPush(i);
+  }
+
+  const designCount = out.filter(i => i._isDesign).length;
+  return {
+    items: out.slice(0, n),
+    strategy: {
+      targetDesignRatio,
+      minDesign,
+      highQualityDesignThreshold,
+      highQualityDesignCount: highQualityDesign.length,
+      designTarget,
+      designCount,
+      triggeredHighQualityBoost: highQualityDesign.length >= highQualityDesignThreshold,
+      usedNonDesignBackfill: designCount < minDesign
+    }
+  };
 }
 
 // ── Cache ───────────────────────────────────────────────────────
@@ -406,6 +448,8 @@ if (!noFxtwitter && needsFetch.length > 0) {
   const rawDetails = await fetchPool(fetchIds, async (id) => {
     const d = await fetchStatusDetail(id);
     const ts = d.created_timestamp ? d.created_timestamp * 1000 : (d.posted_at ? Date.parse(d.posted_at) : NaN);
+    // 严格时窗：24h/48h 模式下，时间不明确的内容直接丢弃，避免混入旧闻
+    if (Number.isNaN(ts) && hours <= 48) return null;
     if (!Number.isNaN(ts) && ts < cutoff) return null;
     if (!d.url.includes('/status/')) return null;
     return { ...d, _source: 'fxtwitter' };
@@ -518,15 +562,13 @@ if (items.length < 12) {
 
 items = deduplicateByTopic(items);
 
-const used = new Set();
-const top10 = pickWithRatio(items, 10, 0.7, used);
-if (top10.length < 10) {
-  const refill = allItems.filter(i => !used.has(i._id)).slice(0, 10 - top10.length);
-  for (const i of refill) {
-    top10.push(i);
-    used.add(i._id);
-  }
-}
+const selection = pickWithDesignPolicy(items, 10, {
+  targetDesignRatio: 0.7,
+  minDesign: 5,
+  highQualityDesignThreshold: 7,
+  maxPerHandle: 2
+});
+const top10 = selection.items;
 
 const allFetchedIds = [...byId.keys()];
 const mergedSeen = [...new Set([...(cache.seenIds || []), ...allFetchedIds])].slice(-5000);
@@ -543,6 +585,11 @@ if (candidatesOnly) {
     reportDate,
     generatedAt: new Date().toISOString(),
     sourceSummary: sourceCounts,
+    selection: {
+      ...(selection.strategy || {}),
+      total: top10.length,
+      designCount: top10.filter(i => i._isDesign).length
+    },
     candidates: top10.slice(0, 10).map((i) => ({
       id: i._id,
       url: i.url,
