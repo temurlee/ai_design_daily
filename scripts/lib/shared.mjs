@@ -90,7 +90,7 @@ import { dirname, join } from 'path';
 export function resolveWebhookUrls({ envKey = 'TEAMS_WEBHOOK_URL', cliUrl = '', baseDir } = {}) {
   const webhookFile = join(baseDir, '.teams-webhook');
   const fileWebhooks = existsSync(webhookFile)
-    ? readFileSync(webhookFile, 'utf8').split('\n').map(s => s.trim()).filter(Boolean)
+    ? readFileSync(webhookFile, 'utf8').split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'))
     : [];
   const all = [process.env[envKey], cliUrl, ...fileWebhooks].filter(Boolean);
   return [...new Set(all)];

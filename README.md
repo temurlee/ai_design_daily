@@ -148,6 +148,19 @@ https://...webhook1...
 https://...webhook2...
 ```
 
+### 2.1 Power Automate 卡片表达式（避免测试卡弹出）
+
+如果你的 Flow 里用到了 `coalesce(...)`，推荐在 **Post adaptive card** 的卡片输入使用下面表达式：
+
+```powerautomate
+coalesce(
+  triggerBody()?['card'],
+  json('{ "\$schema":"http://adaptivecards.io/schemas/adaptive-card.json", "type":"AdaptiveCard", "version":"1.5", "body":[ {"type":"TextBlock","text":"","isVisible":false} ] }')
+)
+```
+
+这样在未收到 `card` 字段时会返回“不可见空卡”，不会再出现 *Webhook test / 未收到 card 字段* 的提示卡。
+
 ### 3. 创建缓存目录
 
 ```bash
