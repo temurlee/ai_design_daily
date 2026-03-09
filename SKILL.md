@@ -44,7 +44,7 @@ TEAMS_WEBHOOK_URL=<url> node scripts/test_card.mjs
 |------|------|
 | `CAMOFOX_URL` 环境变量 | camofox-browser 服务地址（默认自动读取 OpenClaw 插件配置，否则回退 `http://localhost:9377`） |
 | `CAMOFOX_API_KEY` 环境变量 | 可选，用于需要鉴权的端点 |
-| 有效的 X/Twitter cookies | **必需**；否则会落入 X 登录墙，无法抓到 timeline |
+| [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) - 有效的 X/Twitter cookies | **必需**；否则会落入 X 登录墙，无法抓到 timeline |
 
 采集脚本 `collect_camofox.mjs` 通过 camofox-browser REST API 逐个访问 Twitter profile，滚动提取推文时间线。
 零额外 npm 依赖（使用 Node 原生 `fetch`）。**无 camofox-browser 时脚本会直接报错退出**。

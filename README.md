@@ -13,7 +13,7 @@
 
 - [OpenClaw](https://github.com/openclaw/openclaw) - AI 助手框架
 - [camofox-browser](https://github.com/redf0x1/camofox-browser) - 反检测浏览器 REST API 服务（OpenClaw 插件或独立部署）
-- **有效的 X/Twitter cookies** - 否则会落入登录墙，无法抓取 timeline
+- [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) - 有效的 X/Twitter cookies
 - 零额外 npm 依赖（使用 Node 原生 `fetch`）
 
 ## 实现逻辑
