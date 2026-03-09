@@ -12,7 +12,7 @@
  *   Each line: {"url","text","author","created_timestamp","favorites","retweets"}
  *   Compatible with collect_ids_camofox.mjs parseLine().
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { parseCliArgs } from './lib/shared.mjs';
@@ -35,9 +35,32 @@ if (handles.length === 0) {
 
 // ── Pre-flight: camofox-browser server must be reachable ──────────
 
-const CAMOFOX_URL = (process.env.CAMOFOX_URL || 'http://localhost:9377').replace(/\/+$/, '');
+function resolveCamofoxUrl() {
+  if (process.env.CAMOFOX_URL) return process.env.CAMOFOX_URL.replace(/\/+$/, '');
+
+  const candidates = [
+    '/home/node/.openclaw/openclaw.json',
+    join(process.env.HOME || '', '.openclaw', 'openclaw.json')
+  ].filter(Boolean);
+
+  for (const p of candidates) {
+    if (!existsSync(p)) continue;
+    try {
+      const raw = readFileSync(p, 'utf8');
+      const match = raw.match(/"camofox-browser"[\s\S]*?"url"\s*:\s*"([^"]+)"/);
+      if (match?.[1]) return match[1].replace(/\/+$/, '');
+    } catch {
+      // ignore and try next path
+    }
+  }
+
+  return 'http://localhost:9377';
+}
+
+const CAMOFOX_URL = resolveCamofoxUrl();
 const CAMOFOX_API_KEY = process.env.CAMOFOX_API_KEY || '';
 const USER_ID = 'ai-design-daily';
+const SESSION_KEY = process.env.CAMOFOX_SESSION_KEY || 'ai-design-daily';
 
 try {
   const health = await fetch(`${CAMOFOX_URL}/health`);
@@ -113,9 +136,25 @@ const EXTRACT_TWEETS_JS = `(() => {
   return JSON.stringify(results);
 })()`;
 
-const CHECK_BLOCKED_JS = `(() => {
+const CHECK_PAGE_STATE_JS = `(() => {
   const text = document.body?.innerText || '';
-  return /account.*suspended|doesn.t exist|this account|caution.*restricted/i.test(text);
+  const articleCount = document.querySelectorAll('article').length;
+  const linkCount = document.querySelectorAll('a[href*="/status/"]').length;
+  const tweetTextCount = document.querySelectorAll('[data-testid="tweetText"]').length;
+  const timeCount = document.querySelectorAll('time[datetime]').length;
+  const loginWall = /don.t miss what.s happening|log in|sign up|new to x\?|join x today/i.test(text);
+  const restricted = /account.*suspended|doesn.t exist|this account|caution.*restricted/i.test(text);
+  return {
+    title: document.title || '',
+    url: location.href || '',
+    articleCount,
+    linkCount,
+    tweetTextCount,
+    timeCount,
+    loginWall,
+    restricted,
+    bodyPreview: text.slice(0, 1200)
+  };
 })()`;
 
 // ── Collection via camofox-browser REST API ──────────────────────
@@ -125,24 +164,30 @@ async function collectViaRest(handle) {
 
   const tab = await api('POST', '/tabs', {
     userId: USER_ID,
+    sessionKey: SESSION_KEY,
     url: `https://x.com/${h}`
   });
   const tabId = tab.tabId || tab.id || tab.targetId;
   if (!tabId) throw new Error('no tabId returned from POST /tabs');
 
   try {
-    await api('POST', `/tabs/${tabId}/wait`, { userId: USER_ID }).catch(() => {});
+    await api('POST', `/tabs/${tabId}/wait`, { userId: USER_ID, sessionKey: SESSION_KEY }).catch(() => {});
     await sleep(2000);
 
-    const blockResult = await api('POST', `/tabs/${tabId}/evaluate`, {
+    const pageStateResult = await api('POST', `/tabs/${tabId}/evaluate`, {
       userId: USER_ID,
-      expression: CHECK_BLOCKED_JS
+      sessionKey: SESSION_KEY,
+      expression: CHECK_PAGE_STATE_JS
     });
-    if (blockResult.result === true) throw new Error('account suspended/restricted/missing');
+    const pageState = pageStateResult.result || {};
+    if (pageState.restricted === true) throw new Error('account suspended/restricted/missing');
+    if (pageState.loginWall === true && Number(pageState.articleCount || 0) === 0 && Number(pageState.tweetTextCount || 0) === 0) {
+      throw new Error('x-login-wall-detected: missing or expired X/Twitter cookies');
+    }
 
     return await scrollAndExtract(tabId, h);
   } finally {
-    await api('DELETE', `/tabs/${tabId}`, { userId: USER_ID }).catch(() => {});
+    await api('DELETE', `/tabs/${tabId}`, { userId: USER_ID, sessionKey: SESSION_KEY }).catch(() => {});
   }
 }
 
@@ -154,6 +199,7 @@ async function scrollAndExtract(tabId, handle) {
   for (let i = 0; i < maxScrolls; i++) {
     const evalResult = await api('POST', `/tabs/${tabId}/evaluate`, {
       userId: USER_ID,
+      sessionKey: SESSION_KEY,
       expression: EXTRACT_TWEETS_JS
     });
 
@@ -180,6 +226,7 @@ async function scrollAndExtract(tabId, handle) {
 
     await api('POST', `/tabs/${tabId}/scroll`, {
       userId: USER_ID,
+      sessionKey: SESSION_KEY,
       direction: 'down',
       amount: 2000
     });
@@ -195,6 +242,7 @@ async function main() {
   console.error(`== collect_camofox: mode=rest-api, accounts=${handles.length}, hours=${hours} ==`);
 
   const results = { success: [], failed: [], empty: [] };
+  let loginWallDetected = false;
   const allLines = [];
   const globalSeen = new Set();
 
@@ -232,13 +280,14 @@ async function main() {
 
       console.error(`  ${label}: ${inWindow.length} tweets in ${hours}h window`);
     } catch (e) {
+      if (String(e.message || '').includes('x-login-wall-detected')) loginWallDetected = true;
       results.failed.push({ handle: label, reason: e.message });
       console.error(`  ${label}: FAILED — ${e.message}`);
     }
   }
 
   // clean up session
-  await api('DELETE', `/sessions/${USER_ID}`, {}).catch(() => {});
+  await api('DELETE', `/sessions/${USER_ID}`, { sessionKey: SESSION_KEY }).catch(() => {});
 
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, allLines.join('\n') + (allLines.length ? '\n' : ''), 'utf8');
@@ -250,6 +299,12 @@ async function main() {
   console.error(`empty (0 tweets in ${hours}h window): ${results.empty.length}${results.empty.length ? ' (' + results.empty.join(', ') + ')' : ''}`);
   console.error(`failed: ${results.failed.length}${results.failed.length ? ' (' + results.failed.map(f => `${f.handle}: ${f.reason}`).join('; ') + ')' : ''}`);
   console.error(`output: ${output}`);
+
+  if (total === 0 && loginWallDetected) {
+    console.error('\nERROR: X guest/login wall detected — missing or expired X/Twitter cookies.');
+    console.error('Import fresh cookies into camofox-browser, then retry strict run.');
+    process.exit(2);
+  }
 
   if (total === 0) {
     console.error('\nWARN: zero tweets collected. Candidates may be empty.');

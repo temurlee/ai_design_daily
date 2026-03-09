@@ -42,11 +42,13 @@ TEAMS_WEBHOOK_URL=<url> node scripts/test_card.mjs
 
 | 依赖 | 说明 |
 |------|------|
-| `CAMOFOX_URL` 环境变量 | camofox-browser 服务地址（默认 `http://localhost:9377`） |
+| `CAMOFOX_URL` 环境变量 | camofox-browser 服务地址（默认自动读取 OpenClaw 插件配置，否则回退 `http://localhost:9377`） |
 | `CAMOFOX_API_KEY` 环境变量 | 可选，用于需要鉴权的端点 |
+| 有效的 X/Twitter cookies | **必需**；否则会落入 X 登录墙，无法抓到 timeline |
 
 采集脚本 `collect_camofox.mjs` 通过 camofox-browser REST API 逐个访问 Twitter profile，滚动提取推文时间线。
 零额外 npm 依赖（使用 Node 原生 `fetch`）。**无 camofox-browser 时脚本会直接报错退出**。
+若页面命中 `Log in / Sign up / New to X? / Don’t miss what’s happening` 且 timeline 结构计数为 0，脚本会直接判定为 **`X guest/login wall detected — missing or expired X/Twitter cookies`**，而不是再把结果误报成“0 tweets in 24h”。
 
 安装方式：
 - **OpenClaw 插件**：`openclaw plugins install camofox-browser`（自动注入环境变量）
@@ -133,6 +135,7 @@ AI设计日报Beta（TAI-IPX x 🦞）
 - **禁止复用旧缓存**：每次触发 strict 必须清空全部 `cache/` 运行产物并重新采集
 - 禁止在无说明情况下切回"纯摘要截断"模式
 - **必须完整遍历** `references/query-presets.json` 中 `bloggers` 与 `official` 的每一个账号，不得跳过；某账号失败则记录后继续，最后汇报成功/失败列表
+- **必须检测 cookie / 登录态有效性**：若命中 X 登录墙并且 timeline 结构为空，必须明确报 `X guest/login wall detected — missing or expired X/Twitter cookies`，不得再模糊汇报成普通的 0 条结果
 
 ### 2) 固定章节结构
 必须包含且仅包含以下两段：
