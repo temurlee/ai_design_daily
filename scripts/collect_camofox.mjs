@@ -5,6 +5,7 @@
  * Connects to a running camofox-browser server (OpenClaw plugin or standalone).
  *   - CAMOFOX_URL: base URL of the camofox-browser server (default http://localhost:9377)
  *   - CAMOFOX_API_KEY: optional API key for authenticated endpoints
+ *   - CAMOFOX_USER_ID / CAMOFOX_SESSION_KEY: optional camofox identity overrides; default to `main`
  *
  * Zero npm dependencies beyond Node built-ins (uses native fetch).
  *
@@ -24,9 +25,13 @@ const cli = parseCliArgs();
 const hours = Number(cli.get('--hours', '24'));
 const cutoff = Date.now() - hours * 3600 * 1000;
 const output = join(baseDir, cli.get('--output', 'cache/camofox-urls.txt'));
+const diagnosticsOutput = join(baseDir, cli.get('--diagnostics-output', 'cache/camofox-diagnostics.json'));
 
 const presets = JSON.parse(readFileSync(join(baseDir, 'references/query-presets.json'), 'utf8'));
 const handles = [...(presets.bloggers || []), ...(presets.official || [])];
+const accountUrls = Object.fromEntries(
+  Object.entries(presets.accountUrls || {}).map(([k, v]) => [String(k).toLowerCase(), String(v)])
+);
 
 if (handles.length === 0) {
   console.error('ERROR: no handles found in references/query-presets.json');
@@ -59,8 +64,8 @@ function resolveCamofoxUrl() {
 
 const CAMOFOX_URL = resolveCamofoxUrl();
 const CAMOFOX_API_KEY = process.env.CAMOFOX_API_KEY || '';
-const USER_ID = 'ai-design-daily';
-const SESSION_KEY = process.env.CAMOFOX_SESSION_KEY || 'ai-design-daily';
+const USER_ID = process.env.CAMOFOX_USER_ID || process.env.CAMOFOX_SESSION_KEY || 'main';
+const SESSION_KEY = process.env.CAMOFOX_SESSION_KEY || process.env.CAMOFOX_USER_ID || 'main';
 
 try {
   const health = await fetch(`${CAMOFOX_URL}/health`);
@@ -161,15 +166,17 @@ const CHECK_PAGE_STATE_JS = `(() => {
 
 async function collectViaRest(handle) {
   const h = handle.replace(/^@/, '');
+  const targetUrl = accountUrls[String(handle).toLowerCase()] || `https://x.com/${h}`;
 
   const tab = await api('POST', '/tabs', {
     userId: USER_ID,
     sessionKey: SESSION_KEY,
-    url: `https://x.com/${h}`
+    url: targetUrl
   });
   const tabId = tab.tabId || tab.id || tab.targetId;
   if (!tabId) throw new Error('no tabId returned from POST /tabs');
 
+  let pageState = {};
   try {
     await api('POST', `/tabs/${tabId}/wait`, { userId: USER_ID, sessionKey: SESSION_KEY }).catch(() => {});
     await sleep(2000);
@@ -179,13 +186,17 @@ async function collectViaRest(handle) {
       sessionKey: SESSION_KEY,
       expression: CHECK_PAGE_STATE_JS
     });
-    const pageState = pageStateResult.result || {};
+    pageState = pageStateResult.result || {};
     if (pageState.restricted === true) throw new Error('account suspended/restricted/missing');
     if (pageState.loginWall === true && Number(pageState.articleCount || 0) === 0 && Number(pageState.tweetTextCount || 0) === 0) {
       throw new Error('x-login-wall-detected: missing or expired X/Twitter cookies');
     }
 
-    return await scrollAndExtract(tabId, h);
+    const tweets = await scrollAndExtract(tabId, h);
+    return { tweets, pageState };
+  } catch (e) {
+    e.pageState = pageState;
+    throw e;
   } finally {
     await api('DELETE', `/tabs/${tabId}`, { userId: USER_ID, sessionKey: SESSION_KEY }).catch(() => {});
   }
@@ -244,12 +255,13 @@ async function main() {
   const results = { success: [], failed: [], empty: [] };
   let loginWallDetected = false;
   const allLines = [];
+  const diagnostics = {};
   const globalSeen = new Set();
 
   for (const handle of handles) {
     const label = handle.toLowerCase();
     try {
-      const tweets = await collectViaRest(handle);
+      const { tweets, pageState } = await collectViaRest(handle);
 
       const inWindow = [];
       for (const t of tweets) {
@@ -264,6 +276,21 @@ async function main() {
 
       if (inWindow.length > 0) {
         results.success.push({ handle: label, count: inWindow.length });
+        diagnostics[label] = {
+          status: 'ok',
+          tweetCount: inWindow.length,
+          pageState: {
+            articleCount: Number(pageState?.articleCount || 0),
+            linkCount: Number(pageState?.linkCount || 0),
+            tweetTextCount: Number(pageState?.tweetTextCount || 0),
+            timeCount: Number(pageState?.timeCount || 0),
+            loginWall: !!pageState?.loginWall,
+            restricted: !!pageState?.restricted,
+            title: pageState?.title || '',
+            url: pageState?.url || ''
+          },
+          reason: `${hours}h 窗口内采集到 ${inWindow.length} 条`
+        };
         for (const t of inWindow) {
           allLines.push(JSON.stringify({
             url: t.url,
@@ -275,12 +302,50 @@ async function main() {
           }));
         }
       } else {
+        const detailReason = pageState?.loginWall
+          ? '命中登录墙，timeline 未加载'
+          : Number(pageState?.articleCount || 0) === 0 && Number(pageState?.linkCount || 0) === 0
+            ? '页面已打开，但未出现 article/status 链接'
+            : Number(pageState?.articleCount || 0) > 0 && Number(pageState?.linkCount || 0) === 0
+              ? '页面存在 article，但未提取到 status 链接'
+              : '页面可访问，但过去 24 小时内无可用新帖';
         results.empty.push(label);
+        diagnostics[label] = {
+          status: 'empty',
+          tweetCount: 0,
+          pageState: {
+            articleCount: Number(pageState?.articleCount || 0),
+            linkCount: Number(pageState?.linkCount || 0),
+            tweetTextCount: Number(pageState?.tweetTextCount || 0),
+            timeCount: Number(pageState?.timeCount || 0),
+            loginWall: !!pageState?.loginWall,
+            restricted: !!pageState?.restricted,
+            title: pageState?.title || '',
+            url: pageState?.url || ''
+          },
+          reason: detailReason
+        };
       }
 
       console.error(`  ${label}: ${inWindow.length} tweets in ${hours}h window`);
     } catch (e) {
       if (String(e.message || '').includes('x-login-wall-detected')) loginWallDetected = true;
+      const ps = e.pageState || {};
+      diagnostics[label] = {
+        status: 'error',
+        tweetCount: 0,
+        pageState: {
+          articleCount: Number(ps.articleCount || 0),
+          linkCount: Number(ps.linkCount || 0),
+          tweetTextCount: Number(ps.tweetTextCount || 0),
+          timeCount: Number(ps.timeCount || 0),
+          loginWall: !!ps.loginWall,
+          restricted: !!ps.restricted,
+          title: ps.title || '',
+          url: ps.url || ''
+        },
+        reason: e.message
+      };
       results.failed.push({ handle: label, reason: e.message });
       console.error(`  ${label}: FAILED — ${e.message}`);
     }
@@ -291,6 +356,7 @@ async function main() {
 
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, allLines.join('\n') + (allLines.length ? '\n' : ''), 'utf8');
+  writeFileSync(diagnosticsOutput, JSON.stringify(diagnostics, null, 2), 'utf8');
 
   const total = allLines.length;
   console.error(`\n== collection summary ==`);

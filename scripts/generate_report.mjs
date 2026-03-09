@@ -34,6 +34,7 @@ const CONCURRENCY = 5;
 const RETRY_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 1000;
 const BATCH_COOLDOWN_MS = 300;
+const HTTP_TIMEOUT_MS = 12000;
 
 // ── Topic dedup config ──────────────────────────────────────────
 const TOPIC_SIMILARITY_THRESHOLD = 0.35;
@@ -57,6 +58,24 @@ const insightLexicon = [
 const aiLexicon = [
   'ai', '人工智能', 'llm', '大模型', 'chatgpt', 'claude', 'gemini',
   'openai', 'anthropic', 'agent', 'copilot', '模型', '推理'
+];
+const commentaryLexicon = [
+  '突然有个暴论', '笑死', '兄弟们', '哈哈', '卧槽', '终于', '不出意外', '这个就很微妙', '期待', '过来人表示'
+];
+const staleNewsLexicon = [
+  '又来', '回顾', '复盘', '看到这种界面', '讨论和热度', '舆论的导向', '三八妇女节', '月', '上周', '昨天', '前天'
+];
+const launchLexicon = [
+  '发布', '上线', '开源', '推出', '支持', '新增', '内测', '开放', '升级', '更新'
+];
+const opinionLexicon = [
+  '暴论', '我觉得', '说实在', '讨厌', '笑死', '哈哈', '期待', '好玩了', '卧槽', '牛马'
+];
+const sellLexicon = [
+  '买我的授权', '买源码', '见评论区', '安装skill', 'github见评论区', '官网地址，见评论区'
+];
+const weakSignalLexicon = [
+  '访问不了', '会不会', '注意安全', '虽然，但是', '想把', '发现', '尝鲜', '担心', '封号'
 ];
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -103,6 +122,82 @@ function isDesign(item) {
   return designLexicon.some(k => t.includes(k));
 }
 
+function commentaryPenalty(item) {
+  const t = `${item.title || ''} ${item.snippet || ''}`.toLowerCase();
+  let p = 0;
+  for (const k of commentaryLexicon) if (t.includes(k)) p += 10;
+  if (/^[@\w]+\s*(突然|笑死|兄弟们|终于)/i.test(String(item.title || ''))) p += 8;
+  return p;
+}
+
+function staleNewsPenalty(item) {
+  const t = `${item.title || ''} ${item.snippet || ''}`.toLowerCase();
+  let p = 0;
+  for (const k of staleNewsLexicon) if (t.includes(k)) p += 8;
+  if (!launchLexicon.some(k => t.includes(k))) p += 6;
+  return p;
+}
+
+function launchBonus(item) {
+  const t = `${item.title || ''} ${item.snippet || ''}`.toLowerCase();
+  let b = 0;
+  for (const k of launchLexicon) if (t.includes(k)) b += 6;
+  return Math.min(18, b);
+}
+
+function classifyEventType(item) {
+  const t = `${item.title || ''} ${item.snippet || ''}`.toLowerCase();
+  if (sellLexicon.some(k => t.includes(k))) return 'promo';
+  if (weakSignalLexicon.some(k => t.includes(k))) return 'weak-signal';
+  if (/内测|beta|灰度|试用/.test(t)) return 'beta';
+  if (/发布|上线|推出|开源|开放/.test(t)) return 'launch';
+  if (/新增|支持|升级|更新|主题|功能/.test(t)) return 'update';
+  if (/排行榜|评测|测试|对比/.test(t)) return 'benchmark';
+  if (opinionLexicon.some(k => t.includes(k))) return 'opinion';
+  return 'general';
+}
+
+function eventTypeBonus(type) {
+  if (type === 'launch') return 16;
+  if (type === 'update') return 12;
+  if (type === 'beta') return 10;
+  if (type === 'benchmark') return 8;
+  return 0;
+}
+
+function eventTypePenalty(type) {
+  if (type === 'opinion') return 18;
+  if (type === 'promo') return 24;
+  if (type === 'weak-signal') return 22;
+  return 0;
+}
+
+function isHardNews(item) {
+  const type = classifyEventType(item);
+  return ['launch', 'update', 'beta', 'benchmark'].includes(type);
+}
+
+function isLowSignalGeneral(item) {
+  const type = classifyEventType(item);
+  const text = cleanText(`${item.title || ''} ${item.snippet || ''}`);
+  if (type !== 'general') return false;
+  if (text.length < 60) return true;
+  if (!launchLexicon.some(k => text.toLowerCase().includes(k)) && !/排行榜|评测|测试|对比/.test(text.toLowerCase())) return true;
+  if (/^[@\w]+\s*(这|那|一串|本文|想把|虽然|我觉得)/i.test(String(item.title || ''))) return true;
+  return false;
+}
+
+function backfillPriority(item) {
+  const type = item._eventType || classifyEventType(item);
+  if (type === 'benchmark') return 60;
+  if (type === 'update') return 50;
+  if (type === 'launch') return 40;
+  if (type === 'beta') return 30;
+  if (type === 'general') return isLowSignalGeneral(item) ? -10 : 10;
+  if (type === 'opinion') return 0;
+  return -20;
+}
+
 // ── Scoring ─────────────────────────────────────────────────────
 
 function insightScore(item) {
@@ -122,10 +217,16 @@ function engagementScore(item) {
 }
 
 function score(item) {
+  const type = classifyEventType(item);
   let s = 0;
   s += isDesign(item) ? 24 : 0;
   s += insightScore(item);
   s += engagementScore(item);
+  s += launchBonus(item);
+  s += eventTypeBonus(type);
+  s -= commentaryPenalty(item);
+  s -= staleNewsPenalty(item);
+  s -= eventTypePenalty(type);
   if (productAccounts.has(handleOf(item))) s += 12;
   if (officialAccounts.has(handleOf(item))) s += 8;
   return s;
@@ -190,9 +291,21 @@ function formatItem_DEPRECATED(i) {
 // ── Network helpers ─────────────────────────────────────────────
 
 async function getJson(url) {
-  const res = await fetch(url, { headers: { accept: 'application/json' } });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(`timeout after ${HTTP_TIMEOUT_MS}ms`)), HTTP_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      headers: { accept: 'application/json' },
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  } catch (e) {
+    if (e?.name === 'AbortError') throw new Error(`request timeout after ${HTTP_TIMEOUT_MS}ms: ${url}`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function fetchWithRetry(fn, retries = RETRY_ATTEMPTS, delay = RETRY_DELAY_MS) {
@@ -516,13 +629,33 @@ const allItems = [...byId.values()]
   .map(i => {
     const _isDesign = isDesign(i);
     const _insight = insightScore(i);
-    return { ...i, _isDesign, _insight, _score: score(i) };
+    const _eventType = classifyEventType(i);
+    const _isHardNews = isHardNews(i);
+    return { ...i, _isDesign, _insight, _eventType, _isHardNews, _score: score(i) };
   })
   .sort((a, b) => b._score - a._score);
 
-let items = allItems.filter(i => !isPersonalNoise(i) && (isAiRelated(i) || i._isDesign));
+const basePool = allItems.filter(i => !isPersonalNoise(i) && (isAiRelated(i) || i._isDesign || isTrackedAuthor(i)));
+let items = basePool.filter(i => i._isHardNews && i._eventType !== 'promo' && i._eventType !== 'weak-signal');
 if (items.length < 12) {
-  items = allItems.filter(i => !isPersonalNoise(i) && (isAiRelated(i) || i._isDesign || isTrackedAuthor(i))).slice(0, 20);
+  const fallback = basePool
+    .filter(i => i._eventType !== 'promo' && i._eventType !== 'weak-signal')
+    .filter(i => !(i._eventType === 'general' && isLowSignalGeneral(i)))
+    .sort((a, b) => {
+      const pa = backfillPriority(a);
+      const pb = backfillPriority(b);
+      if (pb !== pa) return pb - pa;
+      return Number(b._score || 0) - Number(a._score || 0);
+    });
+  const merged = [...items];
+  const seenIds = new Set(items.map(i => i._id));
+  for (const item of fallback) {
+    if (seenIds.has(item._id)) continue;
+    merged.push(item);
+    seenIds.add(item._id);
+    if (merged.length >= 20) break;
+  }
+  items = merged;
 }
 
 items = deduplicateByTopic(items);
@@ -562,6 +695,8 @@ if (candidatesOnly) {
       snippet: i.snippet || '',
       title: i.title || '',
       isDesign: !!i._isDesign,
+      eventType: i._eventType || 'general',
+      isHardNews: !!i._isHardNews,
       favorites: i.favorites || 0,
       retweets: i.retweets || 0,
       source: i._source || ''

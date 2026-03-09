@@ -143,7 +143,8 @@ function ensureUrl(url) {
 }
 
 function parseReport(raw, fromReportFile = false) {
-  const top10Text = sectionSlice(raw, '📌 TOP 10', ['🧭 小结与展望']);
+  const listHeader = raw.includes('📌 今日精选') ? '📌 今日精选' : '📌 TOP 10';
+  const top10Text = sectionSlice(raw, listHeader, ['🧭 小结与展望']);
   let top10 = parseItems(top10Text);
   top10 = top10.slice(0, 10);
 
@@ -168,24 +169,25 @@ function parseReport(raw, fromReportFile = false) {
 
 function validateStructured(data) {
   const issues = [];
-  if (data.top10.length !== 10) issues.push(`[红线] TOP 10 条数必须为 10，当前为 ${data.top10.length}`);
+  if (data.top10.length < 1) issues.push('[红线] 今日精选为空，无法发送');
+  if (data.top10.length > 10) issues.push(`[红线] 今日精选条数不得超过 10，当前为 ${data.top10.length}`);
   if (!data.summary?.paragraph || !String(data.summary.paragraph).trim()) issues.push('[红线] 小结与展望缺失或为空');
 
   const seenUrls = new Set();
   let boilerplateHits = 0;
   data.top10.forEach((it, idx) => {
-    if (!it.title) issues.push(`TOP 10 第${idx + 1}条标题缺失`);
-    if (!it.url) issues.push(`TOP 10 第${idx + 1}条链接缺失/非法`);
-    if (seenUrls.has(it.url)) issues.push(`[红线] TOP 10 内重复 URL：${it.url}`);
+    if (!it.title) issues.push(`今日精选第${idx + 1}条标题缺失`);
+    if (!it.url) issues.push(`今日精选第${idx + 1}条链接缺失/非法`);
+    if (seenUrls.has(it.url)) issues.push(`[红线] 今日精选内重复 URL：${it.url}`);
     if (it.url) seenUrls.add(it.url);
-    if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`[红线] TOP 10 第${idx + 1}条为占位摘要，非真实内容`);
-    if (it.summary.length < 100 || it.summary.length > 140) issues.push(`[红线] TOP 10 第${idx + 1}条摘要长度异常（${it.summary.length}字，要求 100-140）`);
-    if (/[…．]\s*$/.test(String(it.summary).trim())) issues.push(`[红线] TOP 10 第${idx + 1}条摘要不得以省略号结尾`);
-    if (/\.\.\.\s*$/.test(String(it.summary).trim())) issues.push(`[红线] TOP 10 第${idx + 1}条摘要不得以省略号结尾`);
+    if (/该帖在过去\d+小时内获得较高讨论度/.test(it.summary)) issues.push(`[红线] 今日精选第${idx + 1}条为占位摘要，非真实内容`);
+    if (it.summary.length < 100 || it.summary.length > 140) issues.push(`[红线] 今日精选第${idx + 1}条摘要长度异常（${it.summary.length}字，要求 100-140）`);
+    if (/[…．]\s*$/.test(String(it.summary).trim())) issues.push(`[红线] 今日精选第${idx + 1}条摘要不得以省略号结尾`);
+    if (/\.\.\.\s*$/.test(String(it.summary).trim())) issues.push(`[红线] 今日精选第${idx + 1}条摘要不得以省略号结尾`);
 
     if (/该动态显示相关团队正在推进产品与工作流迭代/.test(it.summary)) boilerplateHits++;
     const englishRatio = ((String(it.title).match(/[A-Za-z]/g) || []).length) / Math.max(1, String(it.title).length);
-    if (englishRatio > 0.5) issues.push(`[红线] TOP 10 第${idx + 1}条标题英文占比过高，需中文新闻式改写`);
+    if (englishRatio > 0.5) issues.push(`[红线] 今日精选第${idx + 1}条标题英文占比过高，需中文新闻式改写`);
   });
 
   if (boilerplateHits >= 2) issues.push('[红线] 摘要出现模板化重复句式（>=2条），需重写');
@@ -257,7 +259,7 @@ function buildExecutionReport({ startMs, endMs, data, webhookResults, failureRea
     ? `失败原因\n${failureReasons.map((x, i) => `${i + 1}. ${x}`).join('\n')}\n\n`
     : '';
 
-  return `✅ Subagent main finished\n执行完成报告\n总耗时: ${mm}分${ss}秒\n\n${failureText}执行统计\n| 指标 | 数量 |\n| ----- | --- |\n| 尝试账号数 | ${attemptedHandles.length} |\n| 成功账号 | ${successHandles.length} |\n| 失败账号 | ${failedHandles.length} |\n| URL数 | ${urlLines.length} |\n| ID数 | ${idCount} |\n| 候选数 | ${candidateCount} |\n| 最终条目数 | ${data.top10.length} |\n| 设计向条目数 | ${designCountMeta}/10 |\n| 策略命中（高质量>=7提升） | ${strategyHitText} |\n| 非设计向补位触发 | ${backfillText} |\n\n账号采集详情\n成功采集（${successHandles.length}个）:\n${successDetails}\n\n无过去24小时推文（${failedHandles.length}个）:\n${failedDetails}\n\nWebhook 发送状态\n| Webhook | 状态 |\n| --------- | --------------- |\n${webhookLines}\n\n详细执行报告已保存至: cache/execution-report.txt`;
+  return `✅ Subagent main finished\n执行完成报告\n总耗时: ${mm}分${ss}秒\n\n${failureText}执行统计\n| 指标 | 数量 |\n| ----- | --- |\n| 尝试账号数 | ${attemptedHandles.length} |\n| 成功账号 | ${successHandles.length} |\n| 失败账号 | ${failedHandles.length} |\n| URL数 | ${urlLines.length} |\n| ID数 | ${idCount} |\n| 候选数 | ${candidateCount} |\n| 精选条目数 | ${data.top10.length} |\n| 设计向条目数 | ${designCountMeta}/${Math.max(1, data.top10.length)} |\n| 策略命中（高质量>=7提升） | ${strategyHitText} |\n| 非设计向补位触发 | ${backfillText} |\n\n账号采集详情\n成功采集（${successHandles.length}个）:\n${successDetails}\n\n无过去24小时推文（${failedHandles.length}个）:\n${failedDetails}\n\nWebhook 发送状态\n| Webhook | 状态 |\n| --------- | --------------- |\n${webhookLines}\n\n详细执行报告已保存至: cache/execution-report.txt`;
 }
 
 // ── Main ────────────────────────────────────────────────────────
@@ -284,11 +286,9 @@ async function main() {
 
   const card = buildCard(dateLine, data);
 
-  const payload = payloadMode === 'card'
-    ? { card }
-    : payloadMode === 'text'
-      ? { text: `${dateLine}\nAI设计日报\n\n${data.top10.map((x, i) => `${i + 1}. ${x.title}\n${x.summary}\n${x.url}`).join('\n\n')}\n\n${data.summary.paragraph}` }
-      : wrapCardForTeams(card);
+  const payload = payloadMode === 'text'
+    ? { text: `${dateLine}\nAI设计日报\n\n${data.top10.map((x, i) => `${i + 1}. ${x.title}\n${x.summary}\n${x.url}`).join('\n\n')}\n\n${data.summary.paragraph}` }
+    : { card };
 
   if (dryRun || webhookUrls.length === 0) {
     console.log(JSON.stringify(payload, null, 2));

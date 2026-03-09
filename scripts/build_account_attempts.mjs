@@ -26,6 +26,7 @@ const cutoff = Date.now() - hours * 3600 * 1000;
 
 const presetsPath = join(baseDir, 'references/query-presets.json');
 const urlsPath = join(baseDir, cli.get('--input', 'cache/camofox-urls.txt'));
+const diagnosticsPath = join(baseDir, cli.get('--diagnostics', 'cache/camofox-diagnostics.json'));
 const outPath = join(baseDir, cli.get('--output', 'cache/account-attempts.json'));
 
 if (!existsSync(presetsPath)) {
@@ -40,6 +41,10 @@ const officialSet = new Set((presets.official || []).map(h => String(h).toLowerC
 const lines = existsSync(urlsPath)
   ? readFileSync(urlsPath, 'utf8').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
   : [];
+
+const diagnostics = existsSync(diagnosticsPath)
+  ? JSON.parse(readFileSync(diagnosticsPath, 'utf8'))
+  : {};
 
 const inWindowCounts = new Map();
 const expiredCounts = new Map();
@@ -77,27 +82,48 @@ for (const h of allHandles) {
   const inWindow = inWindowCounts.get(h) || 0;
   const expired = expiredCounts.get(h) || 0;
   const total = totalCounts.get(h) || 0;
+  const diag = diagnostics[h] || {};
+  const pageState = diag.pageState || {};
 
   if (inWindow > 0) {
     attempts[h] = {
       status: 'ok',
       urlCount: inWindow,
       expiredCount: expired,
-      reason: `${hours}h 窗口内采集到 ${inWindow} 条`
+      reason: diag.reason || `${hours}h 窗口内采集到 ${inWindow} 条`,
+      pageState
     };
   } else if (expired > 0) {
     attempts[h] = {
       status: 'expired',
       urlCount: 0,
       expiredCount: expired,
-      reason: `有 ${expired} 条 URL 但均超出 ${hours} 小时窗口`
+      reason: `有 ${expired} 条 URL 但均超出 ${hours} 小时窗口`,
+      pageState
+    };
+  } else if (diag.status === 'error') {
+    attempts[h] = {
+      status: 'error',
+      urlCount: 0,
+      expiredCount: 0,
+      reason: diag.reason || '页面访问/采集失败',
+      pageState
+    };
+  } else if (diag.status === 'empty') {
+    attempts[h] = {
+      status: officialSet.has(h) ? 'empty' : 'error',
+      urlCount: 0,
+      expiredCount: 0,
+      reason: diag.reason || (officialSet.has(h) ? `过去 ${hours} 小时内无可用新帖` : '页面可访问，但本轮未采集到 URL'),
+      pageState
     };
   } else if (total === 0 && officialSet.has(h)) {
     attempts[h] = {
       status: 'empty',
       urlCount: 0,
       expiredCount: 0,
-      reason: `过去 ${hours} 小时内无可用新帖`
+      reason: `过去 ${hours} 小时内无可用新帖`,
+      pageState
     };
   } else {
     attempts[h] = {
@@ -105,8 +131,9 @@ for (const h of allHandles) {
       urlCount: 0,
       expiredCount: 0,
       reason: total === 0
-        ? '本轮未采集到 URL（可能是页面访问/采集失败）'
-        : `有 ${total} 条 URL 但均无法解析或超窗`
+        ? '本轮未采集到 URL（页面未加载出 timeline 或 status 链接）'
+        : `有 ${total} 条 URL 但均无法解析或超窗`,
+      pageState
     };
   }
 }

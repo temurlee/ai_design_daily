@@ -3,6 +3,23 @@
     "@LgyLight","@sdw","@dotey","@sagacity","@huangyihe","@lxfater","@dingyi","@berryxia","@op7418","@ryolu_","@xiaohu","@Gorden_Sun"
   ],
   "official": ["@TheAppleDesign","@GoogleDesign","@figma"],
+  "accountUrls": {
+    "@lgylight": "https://x.com/LgyLight",
+    "@sdw": "https://x.com/sdw",
+    "@dotey": "https://x.com/dotey",
+    "@sagacity": "https://x.com/sagacity",
+    "@huangyihe": "https://x.com/huangyihe",
+    "@lxfater": "https://x.com/lxfater",
+    "@dingyi": "https://x.com/dingyi",
+    "@berryxia": "https://x.com/berryxia",
+    "@op7418": "https://x.com/op7418",
+    "@ryolu_": "https://x.com/ryolu_",
+    "@xiaohu": "https://x.com/xiaohu",
+    "@gorden_sun": "https://x.com/Gorden_Sun",
+    "@theappledesign": "https://x.com/TheAppleDesign",
+    "@googledesign": "https://x.com/GoogleDesign",
+    "@figma": "https://x.com/figma"
+  },
   "designKeywords": [
     "AI-native UX","Agent UX","Generative UI","Figma AI","AI Prototyping","Design Automation","Multimodal UX","Design-to-Code AI","GenUI","A2UI","Claude Code to Figma","Agentic Browser"
   ],
