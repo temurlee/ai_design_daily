@@ -4,113 +4,85 @@
 
 ## 功能
 
-- 🦊 **Camofox 采集**：子代理自动访问 bloggers 列表，采集推文 URL 并生成 ID 文件
-- 🤖 **AI 生成日报**：按规范生成中文新闻式标题和摘要
-- 📤 **多渠道发送**：支持 Teams（Adaptive Card），可扩展其他渠道
-- ⏰ **Cron 自动化**：配合 OpenClaw 实现定时执行（采集 9:30，发送 10:00）
+- 🦊 **Camofox 实时采集**：通过 CDP 驱动 Camofox 浏览器，自动遍历所有账号并采集推文
+- 🤖 **AI 生成日报**：按规范生成中文新闻式标题和 100–140 字摘要
+- 📤 **Teams 发送**：Adaptive Card 格式，支持多 Webhook
+- ⏰ **单入口全链路**：`npm run strict` 一条命令完成采集→生成→发送
 
 ## 依赖
 
 - [OpenClaw](https://github.com/openclaw/openclaw) - AI 助手框架
 - [Camofox](https://github.com/redf0x1/camofox-browser) - 反检测浏览器（OpenClaw 内置）
+- [puppeteer-core](https://www.npmjs.com/package/puppeteer-core) - CDP 协议客户端（`npm install` 自动安装）
 
 ## 实现逻辑
 
 ### 整体架构
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        OpenClaw 主进程                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│   9:30 Cron ──────► 子代理 A（采集任务）                        │
-│                          │                                      │
-│                          ▼                                      │
-│                   ┌─────────────┐                               │
-│                   │  Camofox    │                               │
-│                   │  浏览器采集  │                               │
-│                   └──────┬──────┘                               │
-│                          │                                      │
-│                          ▼                                      │
-│                   camofox-latest-ids.json                       │
-│                          │                                      │
-│   10:00 Cron ──────► 子代理 B（生成发送）                        │
-│                          │                                      │
-│                          ▼                                      │
-│                   ┌─────────────┐                               │
-│                   │  AI 生成    │                               │
-│                   │  高质量日报  │                               │
-│                   └──────┬──────┘                               │
-│                          │                                      │
-│                          ▼                                      │
-│                   ┌─────────────┐                               │
-│                   │  Teams      │                               │
-│                   │  Webhook    │                               │
-│                   └─────────────┘                               │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     OpenClaw 主进程                           │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│   Cron / 手动触发                                            │
+│        │                                                     │
+│        ▼                                                     │
+│   npm run strict（子代理执行）                                │
+│        │                                                     │
+│        ├─ 1) 清空全部 cache                                  │
+│        ├─ 2) collect_camofox.mjs（Camofox 实时采集）         │
+│        ├─ 3) collect_ids_camofox.mjs（URL→ID）               │
+│        ├─ 4) build_account_attempts.mjs（覆盖校验）          │
+│        ├─ 5) generate_report.mjs（候选生成）                 │
+│        ├─ 6) 检查 generated-report.md ← AI 写稿（子代理）   │
+│        └─ 7) send_to_teams.mjs（发送）                       │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### 数据流
 
 ```
-1. 采集阶段（9:30）
-   ┌──────────┐    ┌──────────────┐    ┌──────────────────────┐
-   │ bloggers │───►│ Camofox 访问  │───►│ 推文 URL + 正文列表  │
-   │ 列表     │    │ Twitter 账号  │    │ camofox-urls.txt     │
-   └──────────┘    └──────────────┘    └──────────┬───────────┘
-                                               │
-                                               ▼
-                                      ┌─────────────────┐
-                                      │ collect_ids     │
-                                      │ 脚本处理        │
-                                      └────────┬────────┘
-                                               │
-                                               ▼
-                                      ┌─────────────────┐
-                                      │ 推文 ID 列表     │
-                                      │ latest-ids.json │
-                                      └─────────────────┘
-
-2. 生成发送阶段（10:00）— 三级数据源
-   ┌─────────────────┐
-   │ latest-ids.json │
-   └────────┬────────┘
-            │
-            ▼
-   ┌──────────────────────────────────────────┐
-   │  Tier 1: Camofox 内容（已有 text 直接用）│
-   │  Tier 2: fxtwitter API（补全缺内容的）   │
-   │  Tier 3: xAI Grok（兜底仍失败的）       │
-   └────────────────────┬─────────────────────┘
-                        │
-                        ▼
-   ┌──────────────────────────────────┐
-   │         AI 生成日报              │
-   │  • TOP 10（10 条）               │
-   │  • 小结与展望（一段话）           │
-   └──────────────┬───────────────────┘
-                                         │
-                                         ▼
-                          ┌──────────────────────────────────┐
-                          │       Adaptive Card JSON         │
-                          └──────────────┬───────────────────┘
-                                         │
-                                         ▼
-                          ┌──────────────────────────────────┐
-                          │       Teams Webhook(s)           │
-                          │       (支持多个频道)              │
-                          └──────────────────────────────────┘
+┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
+│ bloggers │───►│ Camofox 浏览器   │───►│ 推文 URL + 正文      │
+│ + official│    │ 逐账号访问 X     │    │ cache/camofox-urls.txt│
+└──────────┘    └──────────────────┘    └──────────┬───────────┘
+                                                   │
+                                                   ▼
+                                          ┌────────────────┐
+                                          │ collect_ids    │
+                                          │ URL→ID + 去重  │
+                                          └───────┬────────┘
+                                                  │
+                                                  ▼
+                                          ┌────────────────┐
+                                          │ 内容补全       │
+                                          │ Tier1: 已有text│
+                                          │ Tier2: fxtwitter│
+                                          │ Tier3: xAI Grok│
+                                          └───────┬────────┘
+                                                  │
+                                                  ▼
+                                          ┌────────────────┐
+                                          │ AI 生成日报    │
+                                          │ TOP 10 + 小结  │
+                                          └───────┬────────┘
+                                                  │
+                                                  ▼
+                                          ┌────────────────┐
+                                          │ Teams Webhook  │
+                                          │ Adaptive Card  │
+                                          └────────────────┘
 ```
 
 ### 为什么这样设计？
 
 | 设计决策 | 原因 |
 |---------|------|
-| 分离采集和生成 | 采集确定性高，AI 生成可控性强，便于独立调试 |
-| 使用子代理执行 | 隔离环境，避免主会话上下文污染，超时可重试 |
-| 三级数据源 | Camofox 优先（零成本）→ fxtwitter 补全（免费）→ xAI 兜底（付费） |
-| Camofox 而非 API | X/Twitter API 限制多，Camofox 可访问任意公开内容 |
+| `npm run strict` 单入口 | 保证每次触发都是完整全链路，不可能跳步或复用旧缓存 |
+| Camofox 而非 API | X/Twitter API 限制多且收费，Camofox 可访问任意公开内容 |
+| 三级内容补全 | Camofox 已有内容优先（零成本）→ fxtwitter 补单条（免费）→ xAI 兜底（付费） |
+| AI 写稿由子代理完成 | 子代理本身就是 LLM，有完整 SKILL.md 上下文，质量最优 |
 | Adaptive Card | Teams 原生支持，渲染美观，支持 Markdown 链接 |
 
 ### 质量控制
@@ -131,6 +103,8 @@
 ```bash
 cd ~/.openclaw/workspace/skills/
 git clone https://github.com/temurlee/ai_design_daily.git
+cd ai_design_daily
+npm install
 ```
 
 ### 2. 配置 Webhook
@@ -159,70 +133,48 @@ coalesce(
 )
 ```
 
-这样在未收到 `card` 字段时会返回“不可见空卡”，不会再出现 *Webhook test / 未收到 card 字段* 的提示卡。
+这样在未收到 `card` 字段时会返回"不可见空卡"，不会再出现 *Webhook test / 未收到 card 字段* 的提示卡。
 
-### 3. 创建缓存目录
+### 3. 配置 Cron 任务
 
-```bash
-mkdir -p ~/.openclaw/workspace/skills/ai_design_daily/cache
-```
-
-### 4. 配置 Cron 任务
-
-在 OpenClaw 中创建两个 Cron 任务：
-
-**采集任务（每天 9:30 工作日）**：
-```json
-{
-  "name": "AI日报 Camofox 采集",
-  "schedule": { "kind": "cron", "expr": "30 9 * * 1-5", "tz": "Asia/Shanghai" },
-  "payload": {
-    "kind": "agentTurn",
-    "message": "执行AI日报 Camofox 采集：\n\n1. 读取 ~/.openclaw/workspace/skills/ai_design_daily/references/query-presets.json，获取 bloggers 与 official 完整列表\n2. 必须完整遍历上述列表中每一个账号，不得跳过。使用 Camofox 浏览器逐个访问每个账号的 Twitter profile 页面\n3. 滚动页面采集最近 24 小时内的推文，复制每条推文的 status URL\n4. 将所有 URL 写入 ~/.openclaw/workspace/skills/ai_design_daily/cache/camofox-urls.txt\n5. 运行 node ~/.openclaw/workspace/skills/ai_design_daily/scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 24\n6. 汇报采集结果：成功与失败的账号列表",
-    "timeoutSeconds": 3600
-  }
-}
-```
-
-**发送任务（每天 10:00 工作日）**：
-
-子代理需按 SKILL.md「子代理执行指令」执行：先拉取候选数据（运行 generate_report.mjs --candidates-only），再根据 SKILL 与 prompt 用 AI 生成日报正文，写入 cache/generated-report.md，最后运行 send_to_teams.mjs --report-file cache/generated-report.md 发送。详细步骤见 SKILL.md。
+在 OpenClaw 中创建一个 Cron 任务：
 
 ```json
 {
-  "name": "AI设计日报自动发送",
+  "name": "AI设计日报",
   "schedule": { "kind": "cron", "expr": "0 10 * * 1-5", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行AI设计日报生成并发送（完整步骤见本 skill 的 SKILL.md「子代理执行指令」）：\n\n1. 在 ai_design_daily 技能根目录运行：node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json\n2. 阅读 SKILL.md 与 prompt.md（若有），根据 cache/candidates.json 中的 candidates 用 AI 生成日报：TOP 10 每条新闻式标题+100-140字中文摘要+链接，小结一段话；全部中文、无英文残留、禁止模板腔与省略号结尾\n3. 将生成的日报按 SKILL 中约定的 Markdown 格式写入 cache/generated-report.md\n4. 运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送到 Teams",
-    "timeoutSeconds": 600
+    "message": "执行AI设计日报：先运行 npm run strict（会自动采集+生成候选），然后读 SKILL.md 和 cache/candidates.json 用 AI 写日报，写入 cache/generated-report.md，最后运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送。",
+    "timeoutSeconds": 1800
   }
 }
 ```
+
+> `npm run strict` 会自动创建 `cache/` 目录，无需手动创建。
 
 ## 目录结构
 
 ```
 ai_design_daily/
-├── SKILL.md                    # 核心文档：指令、模板、规范
-├── README.md                   # 本文件
-├── package.json                # 工程元信息 & npm scripts
+├── SKILL.md                       # 核心文档：指令、模板、规范
+├── README.md                      # 本文件
+├── package.json                   # 工程元信息 & npm scripts & 依赖
 ├── .gitignore
 ├── scripts/
 │   ├── lib/
-│   │   └── shared.mjs          # 共享工具：CLI 解析、Card 构建、Webhook 封装
-│   ├── collect_ids_camofox.mjs # URL 转 ID 脚本
-│   ├── send_to_teams.mjs       # 发送到 Teams 脚本
-│   ├── generate_report.mjs     # 生成报告脚本
-│   └── test_card.mjs           # 测试卡片脚本
+│   │   └── shared.mjs             # 共享工具：CLI 解析、Card 构建、Webhook 封装
+│   ├── collect_camofox.mjs        # ★ 实时采集（Camofox CDP，必需）
+│   ├── collect_ids_camofox.mjs    # URL → ID 转换 + 时间窗口过滤
+│   ├── build_account_attempts.mjs # 账号覆盖统计（按时间窗口）
+│   ├── run_strict.mjs             # ★ 单入口全链路执行
+│   ├── generate_report.mjs        # 候选生成 + 内容补全（三级策略）
+│   ├── send_to_teams.mjs          # 发送到 Teams
+│   └── test_card.mjs              # 测试卡片格式
 ├── references/
-│   └── query-presets.json      # bloggers 列表
-├── cache/                      # 运行时缓存（不提交）
-│   ├── camofox-urls.txt
-│   ├── camofox-latest-ids.json
-│   ├── candidates.json         # 候选推文（--candidates-only 生成，供 AI 写日报）
-│   └── generated-report.md     # AI 生成的日报正文（子代理写入，--report-file 发送）
-└── .teams-webhook              # Webhook URL（不提交）
+│   └── query-presets.json         # bloggers + official 账号列表
+├── cache/                         # 运行时缓存（不提交，每次 strict 清空重建）
+└── .teams-webhook                 # Webhook URL（不提交）
 ```
 
 ## 自定义
@@ -251,12 +203,9 @@ ai_design_daily/
 
 ## 运行约定（重要）
 
-- **每次触发发送任务 = 全链路重跑（强制）**：必须全部重新执行以下步骤，不得复用旧缓存：
-  - 不复用旧 `cache/camofox-urls.txt`
-  - 不复用旧 `cache/camofox-latest-ids.json`
-  - 不复用旧 `cache/fxtwitter-state.json`
-  - 从采集 → 生成 ID → 三级补全（Camofox→fxtwitter→xAI）→ AI 写稿 → `--report-file` 发送全链路重跑
-- **采集完整性约束**：一次采集任务必须完整覆盖来源——已尝试访问 `bloggers` 与 `official` 的每一个账号（不得跳过），并在汇报中给出成功/失败账号列表后，方可进入发送阶段。
+- **每次触发 = 全链路重跑（强制）**：`npm run strict` 会先清空全部 cache 再实时采集，不得复用任何旧缓存
+- **采集完整性约束**：`collect_camofox.mjs` 完整遍历 `bloggers` 与 `official` 的每一个账号（不得跳过），输出成功/失败/空账号列表
+- **采集必须有 Camofox**：无 `CAMOFOX_WS_ENDPOINT` 环境变量时脚本直接报错退出
 - 发送阶段必须显式使用：
 
 ```bash

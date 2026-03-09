@@ -1,18 +1,22 @@
 {
   "name": "ai-design-daily",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI design daily report generator — collect X/Twitter posts, generate report, send to Teams",
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "collect": "node scripts/collect_ids_camofox.mjs",
+    "collect:camofox": "node scripts/collect_camofox.mjs",
+    "collect:ids": "node scripts/collect_ids_camofox.mjs",
     "attempts": "node scripts/build_account_attempts.mjs",
     "strict": "node scripts/run_strict.mjs",
     "generate": "node scripts/generate_report.mjs",
     "send": "node scripts/send_to_teams.mjs",
     "test-card": "node scripts/test_card.mjs --dry-run"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.0.0"
   },
   "private": true,
   "license": "MIT"

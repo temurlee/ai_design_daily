@@ -1,6 +1,6 @@
 ---
 name: ai-design-daily
-description: Generate a Chinese AI design daily report from real X/Twitter posts in the last 24 hours. Use when user asks for AI日报/设计日报/AI自媒体日报. Output: TOP 10 (10 items) + 小结与展望 (one paragraph). Design-focused ~70%. Three-tier data strategy: Camofox (primary, cost-saving) → fxtwitter (secondary, fill gaps) → xAI Grok (tertiary, paid fallback).
+description: Generate a Chinese AI design daily report from real X/Twitter posts in the last 24 hours. Use when user asks for AI日报/设计日报/AI自媒体日报. Output: TOP 10 (10 items) + 小结与展望 (one paragraph). Design-focused ~70%. Collection requires Camofox (CDP browser). Run `npm run strict` for the full pipeline.
 ---
 
 # AI设计日报 Skill
@@ -11,53 +11,56 @@ description: Generate a Chinese AI design daily report from real X/Twitter posts
 
 ## 快速使用
 
-### 生成并发送日报
+### 正式完整跑（推荐，单入口）
 ```bash
-TEAMS_WEBHOOK_URL=<url> node scripts/send_to_teams.mjs --hours 24
+npm run strict
 ```
 
-> 若未设置环境变量，脚本会回退读取 `skills/ai_design_daily/.teams-webhook`。
+`npm run strict` 会自动完成：实时采集 → URL→ID → 账号覆盖校验 → 候选生成。
+运行后如缺少 `cache/generated-report.md`，会报错提示子代理需先写稿。
 
-### 测试卡片格式（使用模拟数据）
+> Webhook 配置：`TEAMS_WEBHOOK_URL` 环境变量，或 `.teams-webhook` 文件（每行一个 URL）。
+
+### 测试卡片格式（模拟数据）
 ```bash
 TEAMS_WEBHOOK_URL=<url> node scripts/test_card.mjs
 ```
 
-### 仅生成 Markdown（控制台输出）
-```bash
-node scripts/generate_report.mjs --hours 24
-```
+### 底层脚本（高级 / 调试用）
 
-### 增量详情拉取（推荐）
-先由 Camofox 采集候选 status URL/ID（建议同时采集推文正文）：
-1. 将 URL（每行一条）或 JSON 行写入 `cache/camofox-urls.txt`
-   - 纯 URL：`https://x.com/user/status/123456`
-   - 富 JSON（推荐）：`{"url":"...","text":"推文正文","author":"@handle","created_timestamp":1234567890,"favorites":10,"retweets":3}`
-2. 运行转换脚本生成增量 id 文件：
-```bash
-node scripts/collect_ids_camofox.mjs --input cache/camofox-urls.txt --output cache/camofox-latest-ids.json --hours 48
-```
-3. 生成日报（三级数据源自动运作）：
-```bash
-node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json
-```
+| 命令 | 说明 |
+|------|------|
+| `npm run collect:camofox` | 仅采集（Camofox→fxtwitter），产出 `cache/camofox-urls.txt` |
+| `npm run collect:ids` | URL→ID 转换 |
+| `npm run attempts` | 生成账号覆盖报告 |
+| `npm run generate` | 候选生成 / Markdown 输出 |
+| `npm run send` | 发送到 Teams |
 
-**三级数据源策略**（`generate_report.mjs` 内部自动执行）：
-| 优先级 | 数据源 | 条件 | 说明 |
-|--------|--------|------|------|
-| Tier 1 | **Camofox** | ids-file 中已有 snippet/text | 直接使用，零额外请求 |
-| Tier 2 | **fxtwitter** | Tier 1 缺内容的条目 | `api.fxtwitter.com/status/:id`，免费无认证 |
-| Tier 3 | **xAI Grok** | Tier 2 仍失败的条目 | xAI chat completion + search，需 API key |
+正式流程请始终使用 `npm run strict`，上述底层脚本仅供调试或单步排查。
 
-可通过 `--no-fxtwitter` 或 `--no-xai` 跳过对应层级。
-xAI API key 配置：`XAI_API_KEY` 环境变量或项目根目录 `.xai-api-key` 文件。
-如需无 ids 文件时强制尝试 fxtwitter 用户发现，可加 `--discover-fallback`（不推荐，稳定性取决于环境）。
+### 采集层（Camofox，必需）
 
-### OpenClaw 下由 AI 生成日报再发送（推荐）
-1. 生成候选 JSON：`node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json`
-2. 由子代理根据 SKILL 与 `cache/candidates.json` 用 AI 撰写日报，写入 `cache/generated-report.md`
-3. 发送：`node scripts/send_to_teams.mjs --report-file cache/generated-report.md`  
-详见下方「自动化 → 子代理执行指令」。
+| 依赖 | 说明 |
+|------|------|
+| `CAMOFOX_WS_ENDPOINT` 环境变量 | Camofox / CDP 浏览器的 WebSocket 地址 |
+| `puppeteer-core` npm 包 | CDP 协议客户端（`npm install` 自动安装） |
+
+采集脚本 `collect_camofox.mjs` 通过 Camofox 反检测浏览器逐个访问 Twitter profile，滚动提取推文时间线。
+**无 Camofox 时脚本会直接报错退出**，不存在"降级采集"——因为没有任何免费公开 API 能可靠获取用户推文时间线。
+
+> fxtwitter 仅在**内容补全**阶段有效（按已知 status ID 查单条推文），无法用于发现新推文。
+
+### 内容补全三级策略（`generate_report.mjs` 内部）
+
+采集后，对缺少正文的条目自动补全：
+
+| Tier | 数据源 | 说明 |
+|------|--------|------|
+| 1 | Camofox 已有内容 | 直接使用，零请求 |
+| 2 | fxtwitter status API | `api.fxtwitter.com/status/:id`，免费 |
+| 3 | xAI Grok | chat completion + search，需 API key |
+
+可通过 `--no-fxtwitter` / `--no-xai` 跳过。xAI key：`XAI_API_KEY` 或 `.xai-api-key` 文件。
 
 ---
 
@@ -65,17 +68,21 @@ xAI API key 配置：`XAI_API_KEY` 环境变量或项目根目录 `.xai-api-key`
 
 ```
 ai_design_daily/
-├── SKILL.md              # 本文档
-├── package.json          # 工程元信息 & npm scripts
+├── SKILL.md                     # 本文档
+├── package.json                 # 工程元信息 & npm scripts & 依赖
 ├── scripts/
 │   ├── lib/
-│   │   └── shared.mjs    # 共享工具（CLI 解析、Card 构建、Webhook 封装）
-│   ├── send_to_teams.mjs # 完整发送脚本
-│   ├── test_card.mjs     # 快速测试脚本
-│   ├── generate_report.mjs # 候选生成 / Markdown 生成
-│   └── collect_ids_camofox.mjs # URL → ID 转换
-└── references/
-    └── query-presets.json # bloggers 列表
+│   │   └── shared.mjs           # 共享工具（CLI 解析、Card 构建、Webhook 封装）
+│   ├── collect_camofox.mjs      # ★ 实时采集（Camofox CDP → fxtwitter 兜底）
+│   ├── collect_ids_camofox.mjs  # URL → ID 转换 + 时间窗口过滤
+│   ├── build_account_attempts.mjs # 账号覆盖统计（按时间窗口）
+│   ├── run_strict.mjs           # ★ 单入口全链路执行
+│   ├── generate_report.mjs      # 候选生成 + 内容补全（三级策略）
+│   ├── send_to_teams.mjs        # 发送到 Teams
+│   └── test_card.mjs            # 测试卡片格式
+├── references/
+│   └── query-presets.json       # bloggers + official 账号列表
+└── cache/                       # 运行时缓存（不提交，每次 strict 清空重建）
 ```
 
 ---
@@ -106,7 +113,7 @@ AI设计日报Beta（TAI-IPX x 🦞）
 
 ## 内容质量标准（必遵循）
 
-> 用户硬性要求（不可退化）：每日10:00发送版本必须是“100-140字深度摘要 + 设计师视角”的正式版。
+> 用户硬性要求（不可退化）：每日10:00发送版本必须是"100-140字深度摘要 + 设计师视角"的正式版。
 
 ## 用户目标与原则（与 prompt 一致）
 
@@ -118,9 +125,11 @@ AI设计日报Beta（TAI-IPX x 🦞）
 ## 不可退化规则（硬性）
 
 ### 1) 数据与采集
-- 三级策略：Camofox 优先 → fxtwitter 补全 → xAI Grok 兜底
-- 禁止在无说明情况下切回“纯摘要截断”模式
-- **必须完整遍历** `references/query-presets.json` 中 `bloggers` 与 `official` 的每一个账号，不得跳过；某账号失败则记录后继续，最后汇报成功/失败列表。
+- **采集由 `collect_camofox.mjs` 自动完成**（Camofox CDP，必需），`npm run strict` 会自动调用
+- 内容补全三级策略：Camofox 已有内容 → fxtwitter status API → xAI Grok
+- **禁止复用旧缓存**：每次触发 strict 必须清空全部 `cache/` 运行产物并重新采集
+- 禁止在无说明情况下切回"纯摘要截断"模式
+- **必须完整遍历** `references/query-presets.json` 中 `bloggers` 与 `official` 的每一个账号，不得跳过；某账号失败则记录后继续，最后汇报成功/失败列表
 
 ### 2) 固定章节结构
 必须包含且仅包含以下两段：
@@ -155,7 +164,7 @@ AI设计日报Beta（TAI-IPX x 🦞）
 - [ ] 两个章节：📌 TOP 10、🧭 小结与展望，且每章有分割线（separator）
 - [ ] TOP 10 共 10 条，每条为三行结构：标题行（加粗）+ 摘要行 + 链接行
 - [ ] 链接为可点击 markdown，不是裸 URL（`👉 [点击查看](URL)`）
-- [ ] 禁止退化为“整段大文本 TextBlock”
+- [ ] 禁止退化为"整段大文本 TextBlock"
 - [ ] 标题与摘要无英文整句或未翻译长段；存在则不合格，不发送
 - [ ] 每条摘要 100–140 字且为完整新闻句；不足、超出或以省略号结尾均不通过
 - [ ] 小结与展望为一段话，包含当天情绪/趋势与展望
@@ -165,7 +174,7 @@ AI设计日报Beta（TAI-IPX x 🦞）
 
 ### 合格 CARD 基线（回归样例）
 
-以下 JSON 片段可作为“样式回归”最低基线（字段可替换，结构不可改）：
+以下 JSON 片段可作为"样式回归"最低基线（字段可替换，结构不可改）：
 
 ```json
 {
@@ -233,27 +242,22 @@ Tabbit 发布：光年之外团队推出 AI 浏览器
 
 ---
 
-## 内容来源（三级策略）
+## 内容来源（内容补全策略）
+
+`generate_report.mjs` 对采集到的条目做三级内容补全：
 
 ```
-Tier 1: Camofox ──────► 已有内容的直接用（零成本）
-                 │
-                 ▼ 缺内容的
+Tier 1: Camofox 内容 ──► 采集时已带 text 的条目直接使用（零成本）
+                  │
+                  ▼ 缺 text 的
 Tier 2: fxtwitter ────► api.fxtwitter.com/status/:id（免费、无认证）
-                 │
-                 ▼ 仍失败的
+                  │
+                  ▼ 仍失败的
 Tier 3: xAI Grok ────► chat completion + X search（付费、需 API key）
 ```
 
-### Tier 1: Camofox（主通道，默认）
-- **必须完整遍历** `references/query-presets.json` 中 `bloggers` 与 `official` 列表的每一个账号
-- 按列表顺序逐个访问，不得跳过；若某账号访问失败，记录该账号及原因后继续下一个，最后汇总成功/失败列表
-- **建议采集时同时拿推文正文**（写入 JSON 行的 `text` 字段），减少 fxtwitter 请求
-- 建议每账号抓取 30-50 条，时间窗口默认过去 24 小时
-- 做增量去重（按 tweet/status id）
-
 ### Tier 2: fxtwitter（补全通道）
-- 对 Tier 1 未拿到内容（`snippet` 为空）的条目，自动调用 `api.fxtwitter.com/status/:id`
+- 对缺内容（`snippet` 为空）的条目，自动调用 `api.fxtwitter.com/status/:id`
 - 免费、无需认证；5 路并发 + 自动重试
 - 可通过 `--no-fxtwitter` 跳过
 
@@ -266,9 +270,48 @@ Tier 3: xAI Grok ────► chat completion + X search（付费、需 API k
 - **设计占比**: 70%（通过 designLexicon 判断）
 - **时间窗口**: 默认过去 24 小时
 
-### 建议策略（省成本）
+---
 
-Camofox 采集时尽量拿正文，这样大部分条目走 Tier 1 零成本；fxtwitter 作为安全网补全漏网之鱼；xAI 仅在极端情况下启用。对失败账号记录日志不阻塞整份日报，持久化已处理 status id 做增量抓取。
+## 严格单入口执行（默认且强制）
+
+使用 `npm run strict`（即 `scripts/run_strict.mjs`）作为唯一正式入口，固定执行：
+
+```
+1) 清空全部运行缓存（包括 camofox-urls.txt，强制重采）
+       ↓
+2) 实时采集所有账号（collect_camofox.mjs: Camofox CDP → fxtwitter）
+       ↓
+3) URL → ID 转换（collect_ids_camofox.mjs --hours 24）
+       ↓
+4) 账号覆盖统计 + 校验（build_account_attempts.mjs --hours 24）
+       ↓
+5) 生成候选（generate_report.mjs --candidates-only）
+       ↓
+6) 检查 generated-report.md 存在（AI 写稿，由子代理完成）
+       ↓
+7) 发送到 Teams（send_to_teams.mjs --report-file）
+```
+
+命令：
+
+```bash
+npm run strict
+```
+
+默认发送模式：`TEAMS_PAYLOAD_MODE=card`。
+
+### 默认策略（重要）
+
+只要触发「AI设计日报生成/发送/正式完整跑」相关请求，默认执行严格单入口流程；
+不得跳过步骤、不得直接调用旧的散装命令链替代。
+
+**禁止作为默认路径**：
+- 跳过采集，直接复用旧 `cache/camofox-urls.txt`
+- 直接 `generate_report.mjs` 输出 Markdown 后发送
+- 跳过 `account-attempts.json` 生成与覆盖校验
+- 复用前一次 `generated-report.md` 或 `candidates.json` 直接发送
+
+如确需偏离严格流程，必须由用户明确指定并确认。
 
 ---
 
@@ -277,28 +320,26 @@ Camofox 采集时尽量拿正文，这样大部分条目走 Tier 1 零成本；f
 ### Cron 定时任务（高质量日报自动发送）
 
 **约束（强制）**：
-- **每次触发发送任务 = 全链路重跑**：不得复用前一日或更早的 `cache/camofox-urls.txt`、`cache/camofox-latest-ids.json`、`cache/fxtwitter-state.json` 直接出日报；必须从「采集 → 生成 ID → 三级补全（Camofox→fxtwitter→xAI）→ AI 写稿 → `--report-file` 发送」全链路重新执行一遍。
-- **采集内容必须完整覆盖来源**：一次采集任务必须尝试访问 `query-presets.json` 中 `bloggers` 与 `official` 的**每一个账号**（逐个访问 profile，不得跳过）；若某账号失败则记录 handle 与原因并继续，最终在汇报中给出「成功/失败账号列表」，在未尝试完整账号列表前不得宣称采集完成。
+- **每次触发 = 全链路重跑**：`npm run strict` 会先清空 cache 再实时采集，不得复用任何旧缓存
+- **采集内容必须完整覆盖来源**：`collect_camofox.mjs` 会完整遍历 `query-presets.json` 中所有账号；某账号失败记录后继续，最终输出成功/失败/空账号列表
 
-**采集任务（每天 9:30，仅采集不发送）**：
-- 子代理读取 `references/query-presets.json`，**完整遍历**其中 `bloggers` 与 `official` 的每一个账号，使用 Camofox 逐个访问其 Twitter 个人页，滚动采集最近 24 小时内推文 URL 及正文（建议写成富 JSON 行：`{"url":"...","text":"...","author":"@handle","created_timestamp":...}`），写入 `cache/camofox-urls.txt`，再运行 `collect_ids_camofox.mjs` 生成 `cache/camofox-latest-ids.json`
-- **不得跳过任一账号**；失败则记录后继续，最后汇报采集结果（成功/失败账号列表）
-- 本任务**不执行**生成日报或发送
+**发送任务（每天 10:00 工作日）**：
 
-**发送任务（每天 10:00）**：
 ```
-Cron 触发子代理 → 子代理：拉取候选 → 用 AI 按 SKILL 生成日报 → 写入文件 → 调用脚本发送
+Cron 触发子代理 → npm run strict（步骤 1-5 自动完成）
+                → 子代理读 candidates.json + SKILL.md，AI 写稿
+                → 写入 cache/generated-report.md
+                → npm run strict 继续步骤 6-7（发送）
 ```
 
 **子代理执行指令（必须按顺序执行）**：
 
-1. **拉取候选数据**：在 skill 根目录执行  
-   `node scripts/generate_report.mjs --hours 24 --ids-file cache/camofox-latest-ids.json --candidates-only --output cache/candidates.json`  
-   得到 `cache/candidates.json`（内含 `reportDate` 与 `candidates` 数组，每项含 `url`、`author`、`snippet` 等）。
+1. **执行 strict 前半段**：在 skill 根目录执行 `npm run strict`。
+   脚本会自动完成采集→ID→覆盖校验→候选生成，然后在步骤 6 报错 `missing generated-report.md`（这是预期行为）。
 
 2. **阅读规范**：打开本 SKILL.md 与「用户目标与原则」「不可退化规则」「文风与表达硬规则」；若有 `prompt.md` 则一并阅读，作为生成风格与选条依据。
 
-3. **用 AI 生成日报正文**：根据 `candidates` 中的 10 条推文，由你（AI）撰写：
+3. **用 AI 生成日报正文**：根据 `cache/candidates.json` 中的 10 条推文，由你（AI）撰写：
    - **TOP 10**：每条一条**新闻式标题**（产品/事件+动作+一句话定位，禁止套用同一句式）+ **100–140 字中文摘要**（先写发生什么再写影响，设计师视角自然融入，禁止英文整句、禁止模板腔、禁止省略号结尾）+ 该条 `url` 用作链接。每条摘要严格 ≤140 字且完整成句，不得以「…」结尾；若超长请改写压缩而非截断。
    - **去重**：选条时**同一 URL 只出现一次**；若多条候选属于**同一主题/同一活动**（如同一场大会、同一产品同一波发布），只保留一条最具代表性的，其余从候选中用其他主题补足 10 条，避免第 1 条与第 10 条等同主题重复。
    - **小结与展望**：**一段话**总结当天 AI 整体情绪与趋势、展望可能持续发酵的话题，可侧重设计/产品形态短期影响。
@@ -321,12 +362,26 @@ Cron 触发子代理 → 子代理：拉取候选 → 用 AI 按 SKILL 生成日
    [一段话]
    ```
 
-5. **发送到 Teams**：执行  
-   `node scripts/send_to_teams.mjs --report-file cache/generated-report.md`  
+5. **发送到 Teams**：执行
+   `node scripts/send_to_teams.mjs --report-file cache/generated-report.md`
    （webhook 从 `.teams-webhook` 或环境变量读取）。发送前脚本会校验条数、摘要长度与格式，不通过则报错不发送。
 
 **手动触发**：
 告诉主代理"发日报"或"执行AI设计日报"，子代理按上述 1～5 步执行。
+
+**Cron 配置示例**：
+
+```json
+{
+  "name": "AI设计日报",
+  "schedule": { "kind": "cron", "expr": "0 10 * * 1-5", "tz": "Asia/Shanghai" },
+  "payload": {
+    "kind": "agentTurn",
+    "message": "执行AI设计日报：先运行 npm run strict（会自动采集+生成候选），然后读 SKILL.md 和 cache/candidates.json 用 AI 写日报，写入 cache/generated-report.md，最后运行 node scripts/send_to_teams.mjs --report-file cache/generated-report.md 发送。",
+    "timeoutSeconds": 1800
+  }
+}
+```
 
 ---
 
@@ -352,41 +407,12 @@ Cron 触发子代理 → 子代理：拉取候选 → 用 AI 按 SKILL 生成日
 
 - [ ] webhook URL 轮换机制
 - [x] 错误重试机制（已实现：fxtwitter 指数退避重试 + 并发池）
-- [x] 三级数据源（Camofox → fxtwitter → xAI）
+- [x] 内容补全三级数据源（Camofox → fxtwitter → xAI）
+- [x] 实时采集内建（collect_camofox.mjs: Camofox CDP → fxtwitter）
 
 ---
 
-最后更新: 2026-03-05
-
-## 严格单入口执行（默认且强制）
-
-使用 `scripts/run_strict.mjs` 作为“正式完整跑”单入口，固定执行：
-1) 清理运行缓存（保留 `cache/camofox-urls.txt`）
-2) URL → ID
-3) 逐账号结果落盘（`cache/account-attempts.json`）并校验覆盖 15 个账号
-4) 生成 `cache/candidates.json`
-5) 要求先生成 `cache/generated-report.md`（AI 写稿）
-6) 发送并输出执行报告
-
-命令：
-
-```bash
-npm run strict
-```
-
-默认发送模式建议：`TEAMS_PAYLOAD_MODE=card`。
-
-### 默认策略（重要）
-
-只要触发「AI设计日报生成/发送/正式完整跑」相关请求，默认执行严格单入口流程；
-不得跳过步骤、不得直接调用旧的散装命令链替代。
-
-禁止作为默认路径：
-- 直接 `generate_report.mjs` 输出 Markdown 后发送
-- 跳过 `account-attempts.json` 生成与覆盖校验
-- 复用前一次 `generated-report.md` 或 `candidates.json` 直接发送
-
-如确需偏离严格流程，必须由用户明确指定并确认。
+最后更新: 2026-03-09
 
 ## 内容质量硬规则（强制）
 
@@ -396,7 +422,7 @@ npm run strict
    - 禁止直接截取英文原文作为标题
    - 禁止标题英文占比过高（可读性优先）
 
-2. **摘要必须是“事实 + 影响”结构（100-140字）**
+2. **摘要必须是"事实 + 影响"结构（100-140字）**
    - 前半句：说清发生了什么
    - 后半句：说清对设计/产品/协作的影响
    - 禁止模板腔重复句式（如同一开场反复出现）
@@ -408,7 +434,7 @@ npm run strict
      - 摘要出现模板化重复句式
      - 重复 URL / 缺失 URL / 条数不为10
 
-4. **可读性优先于“凑数通过”**
+4. **可读性优先于"凑数通过"**
    - 不得为了通过长度校验拼接空话
    - 不得用占位句覆盖真实信息
 
@@ -418,8 +444,8 @@ npm run strict
 - 目标占比：设计向 70%
 - 下限：设计向至少 5 条
 - 提升条件：若高质量设计向条目 >= 7，则优先提升到 7~8 条
-- 若设计向不足 5 条：允许高质量非设计向补位；日报小结不显式强调“设计向不足”，只保留专业趋势总结
+- 若设计向不足 5 条：允许高质量非设计向补位；日报小结不显式强调"设计向不足"，只保留专业趋势总结
 
 说明：
-- “高质量设计向”由脚本综合分判定（当前阈值：`_score >= 40`）
+- "高质量设计向"由脚本综合分判定（当前阈值：`_score >= 40`）
 - 执行报告会输出：设计向条目数、是否触发提升、是否触发补位
