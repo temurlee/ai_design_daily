@@ -1,6 +1,5 @@
 # Sensitive files
 .teams-webhook
-.xai-api-key
 
 # Runtime cache
 cache/

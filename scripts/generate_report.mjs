@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 /**
- * generate_report.mjs — Three-tier data strategy:
+ * generate_report.mjs — Two-tier data strategy:
  *
  *   Tier 1  Camofox  (items in ids-file that already have snippet/text)
  *   Tier 2  fxtwitter (api.fxtwitter.com/status/:id — free, no auth)
- *   Tier 3  xAI Grok (chat completion with search — paid, needs API key)
  *
  * Items from higher tiers are preferred; lower tiers only fill in gaps.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { parseCliArgs, resolveXaiApiKey, xaiSearchTweets } from './lib/shared.mjs';
+import { parseCliArgs } from './lib/shared.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const baseDir = dirname(__dirname);
@@ -26,7 +25,6 @@ const cachePath = join(baseDir, cachePathArg);
 const idsFilePath = join(baseDir, idsFileArg);
 const discoverFallback = cli.has('--discover-fallback');
 const noFxtwitter = cli.has('--no-fxtwitter');
-const noXai = cli.has('--no-xai');
 const now = new Date();
 const reportDate = dateArg || `${now.getUTCFullYear()}年${String(now.getUTCMonth() + 1).padStart(2, '0')}月${String(now.getUTCDate()).padStart(2, '0')}日`;
 const cutoff = Date.now() - hours * 3600 * 1000;
@@ -57,8 +55,8 @@ const insightLexicon = [
   '拆解', '原理', '对比', '成本', '风险', '效率', '可用性', '一致性', '心智负担'
 ];
 const aiLexicon = [
-  'ai', '人工智能', 'llm', '大模型', 'grok', 'chatgpt', 'claude', 'gemini',
-  'openai', 'anthropic', 'xai', 'agent', 'copilot', '模型', '推理'
+  'ai', '人工智能', 'llm', '大模型', 'chatgpt', 'claude', 'gemini',
+  'openai', 'anthropic', 'agent', 'copilot', '模型', '推理'
 ];
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -437,7 +435,7 @@ for (const x of discovered) {
 }
 
 console.error(`info: tier-1 (camofox content): ${tier1Items.length} items ready`);
-console.error(`info: ${needsFetch.length} items need content from fxtwitter/xai`);
+console.error(`info: ${needsFetch.length} items need content from fxtwitter`);
 
 // ── Tier 2: fxtwitter for items missing content ─────────────────
 
@@ -468,42 +466,9 @@ if (!noFxtwitter && needsFetch.length > 0) {
   console.error('info: tier-2 (fxtwitter) skipped (--no-fxtwitter)');
 }
 
-// ── Tier 3: xAI Grok for remaining items ───────────────────────
-
-const tier3Items = [];
-
-if (!noXai && needsFetch.length > 0) {
-  const xaiKey = resolveXaiApiKey(baseDir);
-  if (xaiKey) {
-    const missingHandles = [...new Set(needsFetch.map(x => x._handle || x.handle).filter(Boolean))];
-    const missingIds = needsFetch.map(x => x.id).filter(Boolean);
-    try {
-      console.error(`info: tier-3 (xai): searching for ${missingIds.length} items from ${missingHandles.length} handles...`);
-      const results = await xaiSearchTweets(
-        missingHandles.length > 0 ? missingHandles : allTrackedHandles.slice(0, 10),
-        { apiKey: xaiKey, hours, targetIds: missingIds }
-      );
-
-      for (const r of results) {
-        if (!r._id && r.url) r._id = statusId(r.url);
-        if (!r._id) continue;
-        if (!r.title) r.title = `${r.author || ''} ${String(r.snippet || '').slice(0, 120)}`.trim();
-        tier3Items.push(r);
-      }
-      console.error(`info: tier-3 (xai): ${tier3Items.length} items retrieved`);
-    } catch (e) {
-      console.error(`warn: tier-3 (xai) failed: ${e.message}`);
-    }
-  } else {
-    console.error('info: tier-3 (xai) skipped — no API key (set XAI_API_KEY or create .xai-api-key)');
-  }
-} else if (noXai) {
-  console.error('info: tier-3 (xai) skipped (--no-xai)');
-}
-
 // ── Fallback: use lite items if all tiers produced nothing ──────
 
-const allDetails = [...tier1Items, ...tier2Items, ...tier3Items];
+const allDetails = [...tier1Items, ...tier2Items];
 
 if (allDetails.length === 0) {
   for (const x of discovered.slice(0, 120)) {

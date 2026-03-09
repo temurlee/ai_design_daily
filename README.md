@@ -59,7 +59,6 @@
                                           │ 内容补全       │
                                           │ Tier1: 已有text│
                                           │ Tier2: fxtwitter│
-                                          │ Tier3: xAI Grok│
                                           └───────┬────────┘
                                                   │
                                                   ▼
@@ -81,7 +80,7 @@
 |---------|------|
 | `npm run strict` 单入口 | 保证每次触发都是完整全链路，不可能跳步或复用旧缓存 |
 | Camofox 而非 API | X/Twitter API 限制多且收费，Camofox 可访问任意公开内容 |
-| 三级内容补全 | Camofox 已有内容优先（零成本）→ fxtwitter 补单条（免费）→ xAI 兜底（付费） |
+| 二级内容补全 | Camofox 已有内容优先（零成本）→ fxtwitter 补单条（免费） |
 | AI 写稿由子代理完成 | 子代理本身就是 LLM，有完整 SKILL.md 上下文，质量最优 |
 | Adaptive Card | Teams 原生支持，渲染美观，支持 Markdown 链接 |
 
@@ -168,7 +167,7 @@ ai_design_daily/
 │   ├── collect_ids_camofox.mjs    # URL → ID 转换 + 时间窗口过滤
 │   ├── build_account_attempts.mjs # 账号覆盖统计（按时间窗口）
 │   ├── run_strict.mjs             # ★ 单入口全链路执行
-│   ├── generate_report.mjs        # 候选生成 + 内容补全（三级策略）
+│   ├── generate_report.mjs        # 候选生成 + 内容补全（二级策略）
 │   ├── send_to_teams.mjs          # 发送到 Teams
 │   └── test_card.mjs              # 测试卡片格式
 ├── references/
