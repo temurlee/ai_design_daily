@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 🦊 **Camofox 实时采集**：通过 CDP 驱动 Camofox 浏览器，自动遍历所有账号并采集推文
+- 🦊 **Camofox 实时采集**：通过 camofox-browser REST API 自动遍历所有账号并采集推文
 - 🤖 **AI 生成日报**：按规范生成中文新闻式标题和 100–140 字摘要
 - 📤 **Teams 发送**：Adaptive Card 格式，支持多 Webhook
 - ⏰ **单入口全链路**：`npm run strict` 一条命令完成采集→生成→发送
@@ -12,8 +12,8 @@
 ## 依赖
 
 - [OpenClaw](https://github.com/openclaw/openclaw) - AI 助手框架
-- [Camofox](https://github.com/redf0x1/camofox-browser) - 反检测浏览器（OpenClaw 内置）
-- [puppeteer-core](https://www.npmjs.com/package/puppeteer-core) - CDP 协议客户端（`npm install` 自动安装）
+- [camofox-browser](https://github.com/redf0x1/camofox-browser) - 反检测浏览器 REST API 服务（OpenClaw 插件或独立部署）
+- 零额外 npm 依赖（使用 Node 原生 `fetch`）
 
 ## 实现逻辑
 
@@ -30,7 +30,7 @@
 │   npm run strict（子代理执行）                                │
 │        │                                                     │
 │        ├─ 1) 清空全部 cache                                  │
-│        ├─ 2) collect_camofox.mjs（Camofox 实时采集）         │
+│        ├─ 2) collect_camofox.mjs（REST API 实时采集）        │
 │        ├─ 3) collect_ids_camofox.mjs（URL→ID）               │
 │        ├─ 4) build_account_attempts.mjs（覆盖校验）          │
 │        ├─ 5) generate_report.mjs（候选生成）                 │
@@ -44,8 +44,8 @@
 
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
-│ bloggers │───►│ Camofox 浏览器   │───►│ 推文 URL + 正文      │
-│ + official│    │ 逐账号访问 X     │    │ cache/camofox-urls.txt│
+│ bloggers │───►│ camofox-browser  │───►│ 推文 URL + 正文      │
+│ + official│    │ REST API 采集    │    │ cache/camofox-urls.txt│
 └──────────┘    └──────────────────┘    └──────────┬───────────┘
                                                    │
                                                    ▼
@@ -79,7 +79,7 @@
 | 设计决策 | 原因 |
 |---------|------|
 | `npm run strict` 单入口 | 保证每次触发都是完整全链路，不可能跳步或复用旧缓存 |
-| Camofox 而非 API | X/Twitter API 限制多且收费，Camofox 可访问任意公开内容 |
+| camofox-browser REST API | X/Twitter API 限制多且收费；camofox-browser 提供反检测浏览器 + 语言无关的 HTTP 接口 |
 | 二级内容补全 | Camofox 已有内容优先（零成本）→ fxtwitter 补单条（免费） |
 | AI 写稿由子代理完成 | 子代理本身就是 LLM，有完整 SKILL.md 上下文，质量最优 |
 | Adaptive Card | Teams 原生支持，渲染美观，支持 Markdown 链接 |
@@ -163,7 +163,7 @@ ai_design_daily/
 ├── scripts/
 │   ├── lib/
 │   │   └── shared.mjs             # 共享工具：CLI 解析、Card 构建、Webhook 封装
-│   ├── collect_camofox.mjs        # ★ 实时采集（Camofox CDP，必需）
+│   ├── collect_camofox.mjs        # ★ 实时采集（camofox-browser REST API，必需）
 │   ├── collect_ids_camofox.mjs    # URL → ID 转换 + 时间窗口过滤
 │   ├── build_account_attempts.mjs # 账号覆盖统计（按时间窗口）
 │   ├── run_strict.mjs             # ★ 单入口全链路执行
@@ -204,7 +204,7 @@ ai_design_daily/
 
 - **每次触发 = 全链路重跑（强制）**：`npm run strict` 会先清空全部 cache 再实时采集，不得复用任何旧缓存
 - **采集完整性约束**：`collect_camofox.mjs` 完整遍历 `bloggers` 与 `official` 的每一个账号（不得跳过），输出成功/失败/空账号列表
-- **采集必须有 Camofox**：无 `CAMOFOX_WS_ENDPOINT` 环境变量时脚本直接报错退出
+- **采集必须有 camofox-browser**：服务不可达时脚本直接报错退出（默认 `http://localhost:9377`，可通过 `CAMOFOX_URL` 修改）
 - 发送阶段必须显式使用：
 
 ```bash

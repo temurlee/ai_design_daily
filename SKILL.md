@@ -1,6 +1,6 @@
 ---
 name: ai-design-daily
-description: Generate a Chinese AI design daily report from real X/Twitter posts in the last 24 hours. Use when user asks for AI日报/设计日报/AI自媒体日报. Output: TOP 10 (10 items) + 小结与展望 (one paragraph). Design-focused ~70%. Collection requires Camofox (CDP browser). Run `npm run strict` for the full pipeline.
+description: Generate a Chinese AI design daily report from real X/Twitter posts in the last 24 hours. Use when user asks for AI日报/设计日报/AI自媒体日报. Output: TOP 10 (10 items) + 小结与展望 (one paragraph). Design-focused ~70%. Collection requires camofox-browser server (REST API). Run `npm run strict` for the full pipeline.
 ---
 
 # AI设计日报 Skill
@@ -30,7 +30,7 @@ TEAMS_WEBHOOK_URL=<url> node scripts/test_card.mjs
 
 | 命令 | 说明 |
 |------|------|
-| `npm run collect:camofox` | 仅采集（Camofox→fxtwitter），产出 `cache/camofox-urls.txt` |
+| `npm run collect:camofox` | 仅采集（camofox-browser REST API），产出 `cache/camofox-urls.txt` |
 | `npm run collect:ids` | URL→ID 转换 |
 | `npm run attempts` | 生成账号覆盖报告 |
 | `npm run generate` | 候选生成 / Markdown 输出 |
@@ -38,19 +38,23 @@ TEAMS_WEBHOOK_URL=<url> node scripts/test_card.mjs
 
 正式流程请始终使用 `npm run strict`，上述底层脚本仅供调试或单步排查。
 
-### 采集层（Camofox，必需）
+### 采集层（camofox-browser，必需）
 
 | 依赖 | 说明 |
 |------|------|
-| `CAMOFOX_WS_ENDPOINT` 环境变量 | Camofox / CDP 浏览器的 WebSocket 地址 |
-| `puppeteer-core` npm 包 | CDP 协议客户端（`npm install` 自动安装） |
+| `CAMOFOX_URL` 环境变量 | camofox-browser 服务地址（默认 `http://localhost:9377`） |
+| `CAMOFOX_API_KEY` 环境变量 | 可选，用于需要鉴权的端点 |
 
-采集脚本 `collect_camofox.mjs` 通过 Camofox 反检测浏览器逐个访问 Twitter profile，滚动提取推文时间线。
-**无 Camofox 时脚本会直接报错退出**，不存在"降级采集"——因为没有任何免费公开 API 能可靠获取用户推文时间线。
+采集脚本 `collect_camofox.mjs` 通过 camofox-browser REST API 逐个访问 Twitter profile，滚动提取推文时间线。
+零额外 npm 依赖（使用 Node 原生 `fetch`）。**无 camofox-browser 时脚本会直接报错退出**。
+
+安装方式：
+- **OpenClaw 插件**：`openclaw plugins install camofox-browser`（自动注入环境变量）
+- **独立部署**：`npx camofox-browser` 或 Docker `ghcr.io/redf0x1/camofox-browser`
 
 > fxtwitter 仅在**内容补全**阶段有效（按已知 status ID 查单条推文），无法用于发现新推文。
 
-### 内容补全三级策略（`generate_report.mjs` 内部）
+### 内容补全策略（`generate_report.mjs` 内部）
 
 采集后，对缺少正文的条目自动补全：
 
@@ -72,11 +76,11 @@ ai_design_daily/
 ├── scripts/
 │   ├── lib/
 │   │   └── shared.mjs           # 共享工具（CLI 解析、Card 构建、Webhook 封装）
-│   ├── collect_camofox.mjs      # ★ 实时采集（Camofox CDP → fxtwitter 兜底）
+│   ├── collect_camofox.mjs      # ★ 实时采集（camofox-browser REST API）
 │   ├── collect_ids_camofox.mjs  # URL → ID 转换 + 时间窗口过滤
 │   ├── build_account_attempts.mjs # 账号覆盖统计（按时间窗口）
 │   ├── run_strict.mjs           # ★ 单入口全链路执行
-│   ├── generate_report.mjs      # 候选生成 + 内容补全（三级策略）
+│   ├── generate_report.mjs      # 候选生成 + 内容补全（二级策略）
 │   ├── send_to_teams.mjs        # 发送到 Teams
 │   └── test_card.mjs            # 测试卡片格式
 ├── references/
@@ -124,7 +128,7 @@ AI设计日报Beta（TAI-IPX x 🦞）
 ## 不可退化规则（硬性）
 
 ### 1) 数据与采集
-- **采集由 `collect_camofox.mjs` 自动完成**（Camofox CDP，必需），`npm run strict` 会自动调用
+- **采集由 `collect_camofox.mjs` 自动完成**（camofox-browser REST API，必需），`npm run strict` 会自动调用
 - 内容补全二级策略：Camofox 已有内容 → fxtwitter status API
 - **禁止复用旧缓存**：每次触发 strict 必须清空全部 `cache/` 运行产物并重新采集
 - 禁止在无说明情况下切回"纯摘要截断"模式
@@ -270,7 +274,7 @@ Tier 2: fxtwitter ────► api.fxtwitter.com/status/:id（免费、无认
 ```
 1) 清空全部运行缓存（包括 camofox-urls.txt，强制重采）
        ↓
-2) 实时采集所有账号（collect_camofox.mjs: Camofox CDP → fxtwitter）
+2) 实时采集所有账号（collect_camofox.mjs: camofox-browser REST API）
        ↓
 3) URL → ID 转换（collect_ids_camofox.mjs --hours 24）
        ↓
@@ -398,7 +402,7 @@ Cron 触发子代理 → npm run strict（步骤 1-5 自动完成）
 - [ ] webhook URL 轮换机制
 - [x] 错误重试机制（已实现：fxtwitter 指数退避重试 + 并发池）
 - [x] 内容补全二级数据源（Camofox → fxtwitter）
-- [x] 实时采集内建（collect_camofox.mjs: Camofox CDP → fxtwitter）
+- [x] 实时采集内建（collect_camofox.mjs: camofox-browser REST API）
 
 ---
 

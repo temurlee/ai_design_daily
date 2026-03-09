@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * collect_camofox.mjs — Real-time tweet collection from all tracked accounts.
+ * collect_camofox.mjs — Real-time tweet collection via camofox-browser REST API.
  *
- * Requires Camofox browser via CDP:
- *   - CAMOFOX_WS_ENDPOINT (or BROWSER_WS_ENDPOINT) environment variable
- *   - puppeteer-core installed
+ * Connects to a running camofox-browser server (OpenClaw plugin or standalone).
+ *   - CAMOFOX_URL: base URL of the camofox-browser server (default http://localhost:9377)
+ *   - CAMOFOX_API_KEY: optional API key for authenticated endpoints
+ *
+ * Zero npm dependencies beyond Node built-ins (uses native fetch).
  *
  * Output: JSON Lines → cache/camofox-urls.txt
  *   Each line: {"url","text","author","created_timestamp","favorites","retweets"}
@@ -31,35 +33,33 @@ if (handles.length === 0) {
   process.exit(1);
 }
 
-// ── Pre-flight: Camofox must be available ────────────────────────
+// ── Pre-flight: camofox-browser server must be reachable ──────────
 
-const wsEndpoint = process.env.CAMOFOX_WS_ENDPOINT || process.env.BROWSER_WS_ENDPOINT || '';
+const CAMOFOX_URL = (process.env.CAMOFOX_URL || 'http://localhost:9377').replace(/\/+$/, '');
+const CAMOFOX_API_KEY = process.env.CAMOFOX_API_KEY || '';
+const USER_ID = 'ai-design-daily';
 
-if (!wsEndpoint) {
-  console.error('ERROR: Camofox is required for tweet collection.');
+try {
+  const health = await fetch(`${CAMOFOX_URL}/health`);
+  if (!health.ok) throw new Error(`status ${health.status}`);
+  const body = await health.json();
+  if (!body.ok) throw new Error('health check returned ok=false');
+  console.error(`camofox-browser connected: ${CAMOFOX_URL} (engine: ${body.engine || 'unknown'})`);
+} catch (e) {
+  console.error('ERROR: Cannot reach camofox-browser server.');
   console.error('');
-  console.error('  Set CAMOFOX_WS_ENDPOINT (or BROWSER_WS_ENDPOINT) to the WebSocket URL');
-  console.error('  of a running Camofox / Chrome DevTools Protocol instance.');
+  console.error(`  Tried: ${CAMOFOX_URL}/health`);
+  console.error(`  Error: ${e.message}`);
   console.error('');
-  console.error('  Example:  CAMOFOX_WS_ENDPOINT=ws://127.0.0.1:9222/devtools/browser/xxx');
+  console.error('  Set CAMOFOX_URL to the base URL of your camofox-browser server.');
+  console.error('  Example:  CAMOFOX_URL=http://localhost:9377');
   console.error('');
-  console.error('  In OpenClaw, Camofox is built-in and the env var is set automatically.');
-  console.error('  Outside OpenClaw, you need a CDP-compatible browser running.');
+  console.error('  In OpenClaw, install the plugin:  openclaw plugins install camofox-browser');
+  console.error('  Standalone:  npx camofox-browser  or  docker run -p 9377:9377 ghcr.io/redf0x1/camofox-browser');
   process.exit(1);
 }
 
-let hasPuppeteer = false;
-try { await import('puppeteer-core'); hasPuppeteer = true; } catch { /* not installed */ }
-
-if (!hasPuppeteer) {
-  console.error('ERROR: puppeteer-core is required but not installed.');
-  console.error('');
-  console.error('  Run:  npm install');
-  console.error('  Or:   npm install puppeteer-core');
-  process.exit(1);
-}
-
-// ── Helpers ──────────────────────────────────────────────────────
+// ── REST API helpers ─────────────────────────────────────────────
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -68,74 +68,100 @@ function statusIdFromUrl(url) {
   return m ? m[1] : '';
 }
 
-// ── Camofox via CDP ──────────────────────────────────────────────
+async function api(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (CAMOFOX_API_KEY) headers['Authorization'] = `Bearer ${CAMOFOX_API_KEY}`;
 
-let _browser = null;
+  const res = await fetch(`${CAMOFOX_URL}${path}`, {
+    method,
+    headers,
+    body: body != null ? JSON.stringify(body) : undefined
+  });
 
-async function getCamofoxBrowser() {
-  if (_browser) return _browser;
-  const puppeteer = (await import('puppeteer-core')).default;
-  _browser = await puppeteer.connect({ browserWSEndpoint: wsEndpoint });
-  return _browser;
-}
-
-async function closeCamofoxBrowser() {
-  if (_browser) {
-    try { _browser.disconnect(); } catch { /* noop */ }
-    _browser = null;
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`camofox ${method} ${path} → ${res.status}: ${text.slice(0, 200)}`);
   }
+
+  try { return JSON.parse(text); } catch { return { raw: text }; }
 }
 
-async function collectViaCamofox(handle) {
-  const browser = await getCamofoxBrowser();
-  const page = await browser.newPage();
+// ── Tweet extraction JS (runs inside camofox-browser via evaluate) ─
+
+const EXTRACT_TWEETS_JS = `(() => {
+  const results = [];
+  for (const article of document.querySelectorAll('article')) {
+    let statusUrl = '';
+    for (const a of article.querySelectorAll('a[href*="/status/"]')) {
+      const href = a.getAttribute('href') || '';
+      if (/\\/status\\/\\d+$/.test(href)) {
+        statusUrl = href.startsWith('http') ? href : 'https://x.com' + href;
+        break;
+      }
+    }
+    if (!statusUrl) continue;
+
+    const textEl = article.querySelector('[data-testid="tweetText"]');
+    const text = textEl ? textEl.textContent || '' : '';
+
+    const timeEl = article.querySelector('time[datetime]');
+    const datetime = timeEl ? timeEl.getAttribute('datetime') : null;
+    const ts = datetime ? Math.floor(new Date(datetime).getTime() / 1000) : 0;
+
+    results.push({ url: statusUrl, text, ts });
+  }
+  return JSON.stringify(results);
+})()`;
+
+const CHECK_BLOCKED_JS = `(() => {
+  const text = document.body?.innerText || '';
+  return /account.*suspended|doesn.t exist|this account|caution.*restricted/i.test(text);
+})()`;
+
+// ── Collection via camofox-browser REST API ──────────────────────
+
+async function collectViaRest(handle) {
+  const h = handle.replace(/^@/, '');
+
+  const tab = await api('POST', '/tabs', {
+    userId: USER_ID,
+    url: `https://x.com/${h}`
+  });
+  const tabId = tab.tabId || tab.id || tab.targetId;
+  if (!tabId) throw new Error('no tabId returned from POST /tabs');
+
   try {
-    const h = handle.replace(/^@/, '');
-    await page.goto(`https://x.com/${h}`, { waitUntil: 'networkidle2', timeout: 30000 });
+    await api('POST', `/tabs/${tabId}/wait`, { userId: USER_ID }).catch(() => {});
+    await sleep(2000);
 
-    const blocked = await page.evaluate(() => {
-      const text = document.body?.innerText || '';
-      return /account.*suspended|doesn.t exist|this account|caution.*restricted/i.test(text);
+    const blockResult = await api('POST', `/tabs/${tabId}/evaluate`, {
+      userId: USER_ID,
+      expression: CHECK_BLOCKED_JS
     });
-    if (blocked) throw new Error('account suspended/restricted/missing');
+    if (blockResult.result === true) throw new Error('account suspended/restricted/missing');
 
-    await page.waitForSelector('article', { timeout: 15000 }).catch(() => null);
-    return await scrollAndExtract(page, h);
+    return await scrollAndExtract(tabId, h);
   } finally {
-    await page.close().catch(() => {});
+    await api('DELETE', `/tabs/${tabId}`, { userId: USER_ID }).catch(() => {});
   }
 }
 
-async function scrollAndExtract(page, handle) {
+async function scrollAndExtract(tabId, handle) {
   const tweets = [];
   const seenIds = new Set();
   const maxScrolls = 6;
 
   for (let i = 0; i < maxScrolls; i++) {
-    const found = await page.evaluate(() => {
-      const results = [];
-      for (const article of document.querySelectorAll('article')) {
-        let statusUrl = '';
-        for (const a of article.querySelectorAll('a[href*="/status/"]')) {
-          const href = a.getAttribute('href') || '';
-          if (/\/status\/\d+$/.test(href)) {
-            statusUrl = href.startsWith('http') ? href : `https://x.com${href}`;
-            break;
-          }
-        }
-        if (!statusUrl) continue;
-
-        const textEl = article.querySelector('[data-testid="tweetText"]');
-        const text = textEl ? textEl.textContent || '' : '';
-
-        const timeEl = article.querySelector('time[datetime]');
-        const datetime = timeEl ? timeEl.getAttribute('datetime') : null;
-        const ts = datetime ? Math.floor(new Date(datetime).getTime() / 1000) : 0;
-
-        results.push({ url: statusUrl, text, ts });
-      }
-      return results;
+    const evalResult = await api('POST', `/tabs/${tabId}/evaluate`, {
+      userId: USER_ID,
+      expression: EXTRACT_TWEETS_JS
     });
+
+    let found = [];
+    try {
+      const raw = evalResult.result || '[]';
+      found = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch { /* parse error, skip */ }
 
     for (const t of found) {
       const id = statusIdFromUrl(t.url);
@@ -152,7 +178,11 @@ async function scrollAndExtract(page, handle) {
       }
     }
 
-    await page.evaluate(() => window.scrollBy(0, window.innerHeight * 2));
+    await api('POST', `/tabs/${tabId}/scroll`, {
+      userId: USER_ID,
+      direction: 'down',
+      amount: 2000
+    });
     await sleep(1500);
   }
 
@@ -162,7 +192,7 @@ async function scrollAndExtract(page, handle) {
 // ── Main ─────────────────────────────────────────────────────────
 
 async function main() {
-  console.error(`== collect_camofox: mode=camofox, accounts=${handles.length}, hours=${hours} ==`);
+  console.error(`== collect_camofox: mode=rest-api, accounts=${handles.length}, hours=${hours} ==`);
 
   const results = { success: [], failed: [], empty: [] };
   const allLines = [];
@@ -171,7 +201,7 @@ async function main() {
   for (const handle of handles) {
     const label = handle.toLowerCase();
     try {
-      const tweets = await collectViaCamofox(handle);
+      const tweets = await collectViaRest(handle);
 
       const inWindow = [];
       for (const t of tweets) {
@@ -207,7 +237,8 @@ async function main() {
     }
   }
 
-  await closeCamofoxBrowser();
+  // clean up session
+  await api('DELETE', `/sessions/${USER_ID}`, {}).catch(() => {});
 
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, allLines.join('\n') + (allLines.length ? '\n' : ''), 'utf8');

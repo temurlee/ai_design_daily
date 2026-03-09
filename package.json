@@ -1,6 +1,6 @@
 {
   "name": "ai-design-daily",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AI design daily report generator — collect X/Twitter posts, generate report, send to Teams",
   "type": "module",
   "engines": {
@@ -15,9 +15,7 @@
     "send": "node scripts/send_to_teams.mjs",
     "test-card": "node scripts/test_card.mjs --dry-run"
   },
-  "dependencies": {
-    "puppeteer-core": "^24.0.0"
-  },
+  "dependencies": {},
   "private": true,
   "license": "MIT"
 }
