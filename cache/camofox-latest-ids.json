@@ -1,0 +1,526 @@
+{
+  "generatedAt": "2026-03-11T03:37:21.933Z",
+  "source": "camofox-manual-export",
+  "items": [
+    {
+      "handle": "@dotey",
+      "id": "2031475779402350955",
+      "url": "https://x.com/dotey/status/2031475779402350955",
+      "created_timestamp": 1773176543,
+      "snippet": "如果你把 claude code 还看作一个只能写代码的 coding agent，那么说明你还不懂 claude code",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@plantegg",
+      "id": "2031495717072904194",
+      "url": "https://x.com/plantegg/status/2031495717072904194",
+      "created_timestamp": 1773181296,
+      "snippet": "这就是说傅盛他们啊：文科出身的中年中高管，是对龙虾部署热情是最高的。\n\n这中间有几个综合因素。\n\n1. 他们从未在计算机自己部署过东西。\n\n2. 还残留着上升期中年人的自信和自傲。\n\n3. 对这些年的一些经济下降，有一股压抑的火，总想证明点啥。\n\n4.",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@jakevin7",
+      "id": "2031412457537704358",
+      "url": "https://x.com/jakevin7/status/2031412457537704358",
+      "created_timestamp": 1773161446,
+      "snippet": "最近把 CLI 工具生态做了一轮大更新：\n\nxiaohongshu-cli — 逆向小红书 Web 接口，搜索/阅读/评论/发帖/点赞，终端里全搞定 \ntwitter-cli — 写接口全覆盖 + 反风控升级 + 架构重构 bilibili-cli — 结构化输出 + 错误分类 + 反风控 \ndiscord-cli /  tg-cli — 统一结构化输出\n\n五个项目全部支持",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dotey",
+      "id": "2031427482931359863",
+      "url": "https://x.com/dotey/status/2031427482931359863",
+      "created_timestamp": 1773165028,
+      "snippet": "所以 Vibe Coding 取代的是谁？",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dotey",
+      "id": "2031424127450406942",
+      "url": "https://x.com/dotey/status/2031424127450406942",
+      "created_timestamp": 1773164228,
+      "snippet": "帮转招聘",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dotey",
+      "id": "2031423898290401341",
+      "url": "https://x.com/dotey/status/2031423898290401341",
+      "created_timestamp": 1773164174,
+      "snippet": "- 本质是什么？ \n通过 IM 指挥 claude code\n\n- 怎么实现的？ \nagent sdk + skills + 定时任务 + im 连接器 + 基于文档的记忆\n\n- 解决了什么问题？ \n满足了情绪价值和 AI 厂商 Token 卖不出去的问题\n\n- 适合拿来做什么？\n装逼和赛博念经\n所谓小龙虾帮约炮成功的一定是编的",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@plantegg",
+      "id": "2031262823708504285",
+      "url": "https://x.com/plantegg/status/2031262823708504285",
+      "created_timestamp": 1773125770,
+      "snippet": "有意思的观点，大家可以读读考考古；估计还有很多年轻人不知道啥是寻呼机",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031380299125264875",
+      "url": "https://x.com/Gorden_Sun/status/2031380299125264875",
+      "created_timestamp": 1773153779,
+      "snippet": "Meta收购了Moltbook\nMoltbook是前一阵火的那个只有AI没有人类的论坛（AI版Reddit），叫Molt是因为当时Clawdbot刚刚改名叫Moltbot，后来改名为现在的OpenClaw。\n收购价格没有透露，两位创始人也加入了Meta。\nOpenAI收麾了OpenClaw的创始人是高招，Meta乱买一通就有点愚蠢了。",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dotey",
+      "id": "2031370234792485163",
+      "url": "https://x.com/dotey/status/2031370234792485163",
+      "created_timestamp": 1773151379,
+      "snippet": "帮转招聘信息",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dotey",
+      "id": "2031367127920255153",
+      "url": "https://x.com/dotey/status/2031367127920255153",
+      "created_timestamp": 1773150638,
+      "snippet": "Forbes 一篇关于 Cursor 的报道里提到，Anthropic 每月 200 美元的 Claude Code Max 套餐，会消耗大约 5000 美元的算力。这个数字被到处转发，很多人当成了 Anthropic 在烧钱补贴的铁证。\n\n但 Martin Alderson 写了篇文章 \"No, it doesn't cost Anthropic $5k per Claude Code user\"",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dotey",
+      "id": "2031231856071372830",
+      "url": "https://x.com/dotey/status/2031231856071372830",
+      "created_timestamp": 1773118387,
+      "snippet": "转译：Harness 工程就是控制论\n\n读 OpenAI 那篇 Harness 工程的文章[1]时，我一直有种说不上来的感觉。然后突然想通了：这个模式我见过，不是一次——是三次。\n\n第一次是 18 世纪 80",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@disksing",
+      "id": "2031214648725483793",
+      "url": "https://x.com/disksing/status/2031214648725483793",
+      "created_timestamp": 1773114285,
+      "snippet": "我一直在说，AI 时代最能打的，还得是那些本身能力强，基本功扎实，还具备架构设计、项目管理经验的人。\n\n今天给大家看个最极端的现身说法——我们 CTO @dxhuang 单枪匹马搞出来的两个硬核项目：\n\nhttps://mem9.ai \nAgent 持久化记忆基础设施。支持 SQL + RAG 混合搜索、Context",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dotey",
+      "id": "2031222021426675760",
+      "url": "https://x.com/dotey/status/2031222021426675760",
+      "created_timestamp": 1773116042,
+      "snippet": "我觉得无论是 Dify 或者是 Cursor，都不能用静态的眼光去看他们。技术模式也许会过时，或者不那么流行，但旧的技术首先能卖的出去就还有现金流，然后团队本身也在调整，那就还有很大机会。\n\n毕竟公司团队都是人组成的，人是活的，会根据形势调整的。要不怎么说投资就是投人而不是公司不是项目呢",
+      "author": "@dotey",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@sagacity",
+      "id": "2031398626501734826",
+      "url": "https://x.com/sagacity/status/2031398626501734826",
+      "created_timestamp": 1773158148,
+      "snippet": "今天忙了一整天，从上午 11 点开始，晚上 11 点结束，感觉真充实。\n\nhttps://note.mowen.cn/detail/hX4-APyqRImVQNOwpyIcV…\n\n二爷这个问题我也遇到过，OpenClaw 看起来能力强大，其实就是个开源项目，脆弱的紧。和 Claude Code 的产品质量完全没法比，经常让它自己诊断一下就自杀起不来了，更新一下，自杀了，装个",
+      "author": "@sagacity",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@huangyihe",
+      "id": "2031563445645226436",
+      "url": "https://x.com/huangyihe/status/2031563445645226436",
+      "created_timestamp": 1773197444,
+      "snippet": "最近聊了几家公司，关于Agent在团队内的落地。其实大家的思路、需求最终都指向“中间层”。\n\n算力、模型都从外部接，谁强用谁的。自身需要搭建的，是根据生产环境定制的一套多Agent编排系统，并且把多年积攒下来的SOP转化成Skill、Workflow，内置进去，以及对接团队知识库。这其实就是newtype",
+      "author": "@huangyihe",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@huangyihe",
+      "id": "2031257760797794503",
+      "url": "https://x.com/huangyihe/status/2031257760797794503",
+      "created_timestamp": 1773124563,
+      "snippet": "AI辅助投资决策，还是用Perplexity。准确、严谨，质量远超同行。OpenClaw搜集的情报你也敢用？\n\n我开了200美金档位，为了使用Perplexity Computer。",
+      "author": "@huangyihe",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@lxfater",
+      "id": "2031326558443729159",
+      "url": "https://x.com/lxfater/status/2031326558443729159",
+      "created_timestamp": 1773140966,
+      "snippet": "大部分人加上我的第一件事情，就是能帮一个忙吗？\n\n你很难想象我一天要面对多少这种人",
+      "author": "@lxfater",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dingyi",
+      "id": "2031535849960255597",
+      "url": "https://x.com/dingyi/status/2031535849960255597",
+      "created_timestamp": 1773190865,
+      "snippet": "发现这个第三方生图平台 MeiGen 还挺棒，网站设计很清新，各大最新图片生成模型都支持，关键是竟然没有订阅制！我就喜欢这种一次性付费的产品，想用时再用，这样才没有焦虑。\n\n然后惊喜的发现他们开源了一套 NanoBanana 提示词库和 MCP server，可以接到 OpenClaw 里用，也可以接到各大 coding",
+      "author": "@dingyi",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dingyi",
+      "id": "2031568673320874254",
+      "url": "https://x.com/dingyi/status/2031568673320874254",
+      "created_timestamp": 1773198691,
+      "snippet": "卧槽卧槽卧槽",
+      "author": "@dingyi",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dingyi",
+      "id": "2031552533702066460",
+      "url": "https://x.com/dingyi/status/2031552533702066460",
+      "created_timestamp": 1773194843,
+      "snippet": "中文区竟然还没看到有人聊 Hermes Agent：https://hermes-agent.nousresearch.com",
+      "author": "@dingyi",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@dingyi",
+      "id": "2031274424633274465",
+      "url": "https://x.com/dingyi/status/2031274424633274465",
+      "created_timestamp": 1773128536,
+      "snippet": "我上次不该吐槽 Notion 文本编辑能力太差，因为这早就不是文本编辑软件了。",
+      "author": "@dingyi",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031560889305018665",
+      "url": "https://x.com/berryxia/status/2031560889305018665",
+      "created_timestamp": 1773196835,
+      "snippet": "不要被一下打开20个窗口所迷惑，\n\n真正的牛马工作场景，可能就是你打开一个PS搞2张图可\n能就该内存告急了\n\n但是2k多可以拿下的朋友还是不用要求太高了。",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031549639527379207",
+      "url": "https://x.com/berryxia/status/2031549639527379207",
+      "created_timestamp": 1773194153,
+      "snippet": "再次应证，这个岗位的重要些和必要性！",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031423981878927716",
+      "url": "https://x.com/berryxia/status/2031423981878927716",
+      "created_timestamp": 1773164193,
+      "snippet": "立即使用 Gemini Embedding 2 开始构建，这是我们功能最强大、也是首个基于 Gemini 架构的全多模态嵌入模型。\n\n现在可通过 Gemini API 和 Vertex AI 获取预览版。",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031415722006725004",
+      "url": "https://x.com/berryxia/status/2031415722006725004",
+      "created_timestamp": 1773162224,
+      "snippet": "Google 一天也不闲着！\n\n又发布Gemini Embedding 2，最新的 SOTA 多模态模型，它能将文本、图像、视频、音频和文档整合到同一个嵌入空间中！ ",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031406673148166584",
+      "url": "https://x.com/berryxia/status/2031406673148166584",
+      "created_timestamp": 1773160067,
+      "snippet": "",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031411335817474309",
+      "url": "https://x.com/berryxia/status/2031411335817474309",
+      "created_timestamp": 1773161178,
+      "snippet": "项目地址：https://github.com/GoogleCloudPlatform/generative-ai/tree/main/gemini/agents/always-on-memory-agent…",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031410937836752897",
+      "url": "https://x.com/berryxia/status/2031410937836752897",
+      "created_timestamp": 1773161084,
+      "snippet": "兄弟们！你养龙虾的过程是不是真心觉得他就是我们口中的“大头虾”！\n\n因为它的记忆系统总是有问题，Google 大善人终于对OpenClaw 记忆系统下手了！\n\n只需要把这个项目丢给他，小龙虾几分钟就帮你搞定！并且目前来看记忆系统是比我之前的好太多！\n\n关键是开源免费，Google",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031397114392215865",
+      "url": "https://x.com/berryxia/status/2031397114392215865",
+      "created_timestamp": 1773157788,
+      "snippet": "兄弟们，这份近100页的好东西，我第一时间已经发给社群的人了！\n\n那就是花生的这个OpenClaw 龙虾橙皮书，我看完了，排版精美就算了，内容还非常的全，并且是免费开源的。\n\n所以，我觉得下载看就完了。如果你觉得有些内容太复杂，不是很懂，丢给小龙虾和你一起去阅读。",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031393122408919174",
+      "url": "https://x.com/berryxia/status/2031393122408919174",
+      "created_timestamp": 1773156836,
+      "snippet": "兄弟们，不知道你们有没有感觉？\n\n如今国内的各个品牌商做\"XClaw\" 龙虾的生意，怎么越\n\n看越像前些年那会运营商卖流量那个套路啊？",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031379427511382081",
+      "url": "https://x.com/berryxia/status/2031379427511382081",
+      "created_timestamp": 1773153571,
+      "snippet": "Google 办公套件迎来 AI 超级升级！\n尊贵的Ultra 用户优先体验！\n由 Gemini 全力赋能的全新办公全家桶 和 Drive 正式上线！\n 核心亮点抢先看：\n AI 智能概览，复杂内容一键提炼\n 完全可编辑的 AI 生成幻灯片，创意零门槛\n 上下文感知能力升级，文档编写更精准高效",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031373719386599447",
+      "url": "https://x.com/berryxia/status/2031373719386599447",
+      "created_timestamp": 1773152210,
+      "snippet": "耳朵有提示词这块的实践原则总结出来了9条原则，对我来说，我觉得最多的就是你再对话过程中包括设计提示词过程中不断的实践和结合9个原则的方向去调整就是最好的。\n\n玩小龙虾也是如此。多对话，多尝试。",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031340194906145076",
+      "url": "https://x.com/berryxia/status/2031340194906145076",
+      "created_timestamp": 1773144217,
+      "snippet": "一键卸载小龙虾没有套路\n佬的KillClaw 来了！\n不需要找人卸载了，直接开干！",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@berryxia",
+      "id": "2031293858487873574",
+      "url": "https://x.com/berryxia/status/2031293858487873574",
+      "created_timestamp": 1773133170,
+      "snippet": "卧槽！还是科大懂中国人啊！\n\n前几天我在群里说，过不了多久各种三六九等的虾就会按照不同套餐价格卖！\n\n果不其然，科大讯飞已经来搞了！\n\n这就给你开个入门版：3.9 元 尝点甜头，7.9 元/ 来点开胃菜，39.9 元才是正菜啊！\n\n看来这一波OpenClaw小龙虾 ，各大厂商真是一个都不能少！！！",
+      "author": "@berryxia",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@op7418",
+      "id": "2031363798943281191",
+      "url": "https://x.com/op7418/status/2031363798943281191",
+      "created_timestamp": 1773149845,
+      "snippet": "Codepilot 终于有官网了朋友们！\n\n藏师傅下午 Vibe Design 了一下，文档网页也上线了\n\nhttps://codepilot.sh",
+      "author": "@op7418",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@op7418",
+      "id": "2031420303533027376",
+      "url": "https://x.com/op7418/status/2031420303533027376",
+      "created_timestamp": 1773163316,
+      "snippet": "文档也全部更新了，之前觉得不会用的朋友可以看文档了，写得相当细。",
+      "author": "@op7418",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@xiaohu",
+      "id": "2031532646225109351",
+      "url": "https://x.com/xiaohu/status/2031532646225109351",
+      "created_timestamp": 1773190101,
+      "snippet": "企鹅\n\n要变龙虾了\n\n腾讯IP吉祥物要改了...",
+      "author": "@xiaohu",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@xiaohu",
+      "id": "2031293612366115106",
+      "url": "https://x.com/xiaohu/status/2031293612366115106",
+      "created_timestamp": 1773133111,
+      "snippet": "新业务来了\n\n哈哈哈",
+      "author": "@xiaohu",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031572630520905782",
+      "url": "https://x.com/Gorden_Sun/status/2031572630520905782",
+      "created_timestamp": 1773199634,
+      "snippet": "Google发布首个原生多模态嵌入模型Gemini Embedding 2\n单一模型同时处理文本、图像、视频、音频和文档，映射到统一的嵌入向量空间，再也不需要多个模型嵌套来检索多模态内容了。",
+      "author": "@Gorden_Sun",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031574704792940619",
+      "url": "https://x.com/Gorden_Sun/status/2031574704792940619",
+      "created_timestamp": 1773200129,
+      "snippet": "这个可以做的有用、有趣的东西太多了。\n例如可以把一个人的所有文字作品、图片、语音记录、视频作品和视频记录整理成一个检索库，然后就能实现类似《头号玩家》电影了，男主角找那个NPC查创始人做某件事时的片段，AI立马就把进度条拉到了对应的视频位置。",
+      "author": "@Gorden_Sun",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031566332437869039",
+      "url": "https://x.com/Gorden_Sun/status/2031566332437869039",
+      "created_timestamp": 1773198132,
+      "snippet": "ChatGPT新增交互式学习功能\n覆盖70+数学和科学核心概念，免费用户可用。用户可以实时调整变量、操作公式，直观看到图形和结果的变化。\n交互式学习确实对学生比较友好，不过只有70个太少了。有个数学教学产品叫Brilliant，也是这种交互式学习，数学内容齐全，感兴趣的可以看看。再就是谷歌的Learn Your",
+      "author": "@Gorden_Sun",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031562434541138420",
+      "url": "https://x.com/Gorden_Sun/status/2031562434541138420",
+      "created_timestamp": 1773197203,
+      "snippet": "Cloudflare新增爬虫API /crawl\n从起始URL出发自动发现并抓取整站内容，支持返回HTML、Markdown或JSON格式，最大可以爬取10万页。\n可以用无头浏览器拉取框架渲染的网页，也可以直接拉取静态网页。\n结合Workers AI可直接对爬取页面做结构化数据提取，天然适配RAG知识库场景。",
+      "author": "@Gorden_Sun",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031558426464235838",
+      "url": "https://x.com/Gorden_Sun/status/2031558426464235838",
+      "created_timestamp": 1773196248,
+      "snippet": "Fish Audio开源S2-Pro音频模型\n文本生成音频效果很好，音频克隆在情绪和音色还原上，还是不如Index TTS 2，不过整体也非常好了。\n模型：https://huggingface.co/fishaudio/s2-pro…",
+      "author": "@Gorden_Sun",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031385945182974071",
+      "url": "https://x.com/Gorden_Sun/status/2031385945182974071",
+      "created_timestamp": 1773155125,
+      "snippet": "AI资讯日报，3月10日：https://gorden-sun.notion.site/3-10-AI-31f59424732580d0a282ed96a01c0152?source=copy_link…",
+      "author": "@Gorden_Sun",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031377609213530311",
+      "url": "https://x.com/Gorden_Sun/status/2031377609213530311",
+      "created_timestamp": 1773153137,
+      "snippet": "AgentHub：Agent版Github\n来自Karpathy的项目，给Agent用的精简版的GitHub，没有主分支、没有PR、没有合并，只有一个不断增长的提交DAG（Directed Acyclic Graph，有向无环图，此处可以理解为树状网络）和一个供Agent协调的留言板。",
+      "author": "@Gorden_Sun",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031284947584258483",
+      "url": "https://x.com/Gorden_Sun/status/2031284947584258483",
+      "created_timestamp": 1773131045,
+      "snippet": "OBLITERATUS：开源LLM越狱工具包\nLLM越狱大神Pliny的开源工具，在不重训和微调的前提下，精准移除开源LLM内部的拒答机制，同时保留核心语言能力。\n不过我试了下，好像并没有生效。\nGithub：https://github.com/elder-plinius/OBLITERATUS…\n在线体验（先Obliterate一个模型，再Chat）：https://huggingface.co/spaces/pliny-the-prompter/obliteratus…",
+      "author": "@Gorden_Sun",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@gorden_sun",
+      "id": "2031280334546022698",
+      "url": "https://x.com/Gorden_Sun/status/2031280334546022698",
+      "created_timestamp": 1773129945,
+      "snippet": "研究比工程更重要\n\n用AI辅助解读了一下：\n当代码免费时，研究才是真正重要的事\n【核心观点】 \n· AI让代码实现趋近免费，未来最重要的人不是工程师，而是研究者——他们决定什么值得做、什么根本做不到 \n· 研究的核心难度在于不确定性：你可能投入一年，答案是\"此路不通\"，这正是它难以被自动化的原因",
+      "author": "@Gorden_Sun",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@googledesign",
+      "id": "2031399681826390436",
+      "url": "https://x.com/GoogleDesign/status/2031399681826390436",
+      "created_timestamp": 1773158400,
+      "snippet": "In the early days of #MaterialDesign, a small team of designers at Google sought to create a new visual language for a rapidly-growing company.\n\nLearn how @ZachGibson and the team rooted their design system in the physical world using paper → https://goo.gle/3ZitEVY\n\n#M10",
+      "author": "@GoogleDesign",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@figma",
+      "id": "2031503914894504277",
+      "url": "https://x.com/figma/status/2031503914894504277",
+      "created_timestamp": 1773183251,
+      "snippet": "Move fast. Nickname things.\n\nIntroducing, ANZBON: the Australian & New Zealand Bureau of Nicknames.",
+      "author": "@figma",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@figma",
+      "id": "2031503916861632854",
+      "url": "https://x.com/figma/status/2031503916861632854",
+      "created_timestamp": 1773183251,
+      "snippet": "Results may vary → https://anzbon.figma.site",
+      "author": "@figma",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@code",
+      "id": "2031407777508446432",
+      "url": "https://x.com/code/status/2031407777508446432",
+      "created_timestamp": 1773160330,
+      "snippet": "VS Code Live: Code to Canvas with Figma MCP and GitHub Copilot",
+      "author": "@figma",
+      "favorites": 0,
+      "retweets": 0
+    },
+    {
+      "handle": "@figma",
+      "id": "2031369435689197612",
+      "url": "https://x.com/figma/status/2031369435689197612",
+      "created_timestamp": 1773151189,
+      "snippet": "Github Copilot to Figma: Roundtrip between code and canvas through the Figma MCP server",
+      "author": "@figma",
+      "favorites": 0,
+      "retweets": 0
+    }
+  ]
+}
